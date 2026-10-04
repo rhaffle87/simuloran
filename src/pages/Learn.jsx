@@ -1,179 +1,236 @@
-import React, { useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Compass, Radio, Activity, Layers,
   ShieldCheck, TrendingDown, ArrowRight, BookOpen,
-  Cpu, Database,
+  Cpu, Database, Search, X, ChevronDown, ChevronUp
 } from 'lucide-react';
 import TrialValidationPanel from '../components/panels/TrialValidationPanel.jsx';
 import { useSimulationStore } from '../state/simulationStore.js';
 import MathView from '../components/ui/MathView.jsx';
 
-const concepts = [
+const CATEGORIES = [
+  { id: 'all', label: 'All Topics', icon: BookOpen },
+  { id: 'positioning', label: 'Geodesy & Positioning', icon: Compass },
+  { id: 'rf', label: 'RF Waveforms & Carrier', icon: Activity },
+  { id: 'propagation', label: 'Groundwave & ASF Physics', icon: Layers },
+  { id: 'resilience', label: 'Resilience & Modern eLoran', icon: ShieldCheck },
+];
+
+const CONCEPTS = [
   {
     id: 'tdoa',
+    category: 'positioning',
     title: 'Time Difference of Arrival (TDOA) & Hyperbolas',
+    standard: 'Classical Loran-C Standard',
+    citation: 'USCG COMDTINST M16562.4A',
     icon: Radio,
     accentVar: '--accent-eloran',
-    summary:
-      'Loran does not measure absolute time-of-flight from transmitter to receiver. Instead, it measures the differential arrival time between synchronized master and secondary transmitters.',
-    math: '\\text{TDOA} = t_{\\text{arr},S} - t_{\\text{arr},M} = \\frac{d_S - d_M}{c} + t_{\\text{coding}}',
-    explanation:
-      'For any fixed time difference, the locus of points having a constant distance difference from two fixed stations forms a hyperbola (Line of Position / LOP). The intersection of two or more LOPs uniquely fixes the receiver in two dimensions.',
+    oneLiner: 'Positioning is derived from differential arrival times between synchronized transmitters, forming hyperbolic Lines of Position (LOPs).',
+    math: '\\text{TDOA}_i = t_{\\text{arr}, i} - t_{\\text{arr}, M} = \\frac{\\|\\mathbf{x} - \\mathbf{s}_i\\| - \\|\\mathbf{x} - \\mathbf{s}_M\\|}{c} + \\text{ED}_i',
+    mechanism: 'Each secondary station radiates with a calibrated Emission Delay (ED). The receiver measures arrival time differences relative to the Master pulse group.',
+    operationalLimit: 'Geometric dilution occurs along baseline extensions where hyperbolas collapse into straight lines, losing cross-track resolution.',
+    targetStandard: 'Position fix error < 460 m (0.25 NM) for classical Loran-C; < 10 m for differential eLoran.',
+    deepDive: 'For any fixed time difference, the locus of points having a constant distance difference from two fixed stations forms a hyperbola. The intersection of two or more LOPs uniquely fixes the receiver in two dimensions. In eLoran, direct pseudorange Time of Arrival (TOA) multilateration supplements TDOA, eliminating reliance on a single master station.',
     presetId: 'rotterdam_harbor_approach',
     targetRoute: '/loran-c',
     buttonLabel: 'Launch Baseline TDOA Demo',
   },
   {
     id: 'gdop',
+    category: 'positioning',
     title: 'Geometric Dilution of Precision (GDOP)',
+    standard: 'Navigation Geometry Criterion',
+    citation: 'IEEE Trans. Aerospace & Electronic Systems',
     icon: TrendingDown,
     accentVar: '--accent-loran-c',
-    summary:
-      'How transmitter geometry magnifies timing measurement errors into horizontal positioning uncertainty.',
-    math: '\\text{GDOP} = \\sqrt{ \\mathrm{Tr}\\left( (H^T H)^{-1} \\right) }',
-    explanation:
-      'When transmitter stations are nearly collinear or subtend narrow angles relative to the receiver, hyperbolic lines of position intersect at grazing angles. A 10 ns timing jitter translates into hundreds of metres of horizontal position error. Wide angular baseline separation yields optimal geometry (GDOP < 2).',
+    oneLiner: 'Station geometry mathematically scales timing jitter into positional uncertainty on the navigation chart.',
+    math: '\\text{GDOP} = \\sqrt{\\mathrm{Tr}\\left( (H^T H)^{-1} \\right)}, \\quad \\sigma_{\\text{pos}} = \\text{GDOP} \\cdot c \\cdot \\sigma_{\\tau}',
+    mechanism: 'The geometry matrix H maps line-of-sight unit vectors to the receiver. Wide angular baselines (~90°) minimize the trace of the inverse normal matrix.',
+    operationalLimit: 'Collinear stations or baseline extensions cause det(H^T H) -> 0, magnifying sub-microsecond jitter into kilometer-scale fix errors.',
+    targetStandard: 'Optimal fix: GDOP <= 1.5; Coastal navigation limit: GDOP <= 3.0; USCG service limit: GDOP <= 10.92.',
+    deepDive: 'When transmitter stations subtend narrow angles relative to the receiver, hyperbolic lines of position intersect at grazing angles. A 10 ns timing jitter translates into hundreds of metres of horizontal position error. SIMULORAN computes the full inverted covariance matrix Q = (H^T W H)^-1 in real time, projecting the 95% confidence error ellipse on the vector map.',
     presetId: 'north_sea_historical',
     targetRoute: '/loran-c',
     buttonLabel: 'Inspect Geometry & GDOP',
   },
   {
     id: 'gauss-newton',
-    title: 'Gauss-Newton Hyperbolic Solver & Metric Conditioning',
+    category: 'positioning',
+    title: 'Gauss-Newton & Levenberg-Marquardt Solvers',
+    standard: 'Non-Linear Iterative Multilateration',
+    citation: 'Bancroft (1985) / Levenberg (1944)',
     icon: Compass,
     accentVar: '--accent-eloran',
-    summary:
-      'Iterative non-linear least-squares multilateration formulated in range-difference metre space for ill-conditioned singularity protection.',
-    math: '\\Delta \\mathbf{x} = \\left( J^T J \\right)^{-1} J^T \\Delta \\mathbf{\\rho}, \\quad \\det(J^T J) > 10^{-12}',
-    explanation:
-      'Non-linear hyperbolic measurement equations are linearized via a 2D Jacobian matrix J relating positional corrections [Δx, Δy] to range-difference residuals Δρ. Formulating the normal equations in metric distance space rather than seconds space prevents matrix determinants from collapsing to order 10⁻³⁴, guaranteeing rapid 4-iteration convergence and numerical stability.',
+    oneLiner: 'Iterative metric-conditioned normal equations solve 2D position fixes with singularity damping.',
+    math: '\\Delta \\mathbf{x} = (J^T W J + \\lambda I)^{-1} J^T W \\Delta \\mathbf{\\rho}, \\quad \\det(J^T J) > 10^{-12}',
+    mechanism: 'Hyperbolic and pseudorange residuals are linearized around an initial estimate using the 2D Jacobian matrix J, iterating until ||Δx|| < 0.01 m.',
+    operationalLimit: 'Standard time-domain formulation causes determinants to collapse to order 10^-34; solving in distance-metre space guarantees numerical stability.',
+    targetStandard: 'Rapid convergence in <= 4 iterations with condition number kappa(J) < 10^4.',
+    deepDive: 'Formulating normal equations in metric distance space rather than seconds space prevents double-precision underflow. The Levenberg-Marquardt damping parameter lambda dynamically adapts when geometry degrades near baseline extensions, seamlessly transitioning between gradient descent and Gauss-Newton steps.',
     presetId: 'rotterdam_harbor_approach',
     targetRoute: '/loran-c',
-    buttonLabel: 'Test Hyperbolic Solver',
+    buttonLabel: 'Launch Multilateration Solver',
   },
   {
     id: 'asf',
-    title: 'Additional Secondary Factor (ASF) & Propagation Delay',
+    category: 'propagation',
+    title: 'Additional Secondary Factor (ASF) & Millington Method',
+    standard: 'ITU-R Rec. P.368-10 Groundwave Model',
+    citation: 'Millington (1949), Proc. IEE 96(39)',
     icon: Layers,
-    accentVar: '--accent-loran-c',
-    summary:
-      'Phase delay accumulated as low-frequency groundwaves traverse landmasses of varying soil conductivity and elevation.',
-    math: 't_{\\text{prop}} = \\frac{d}{c} + \\text{PF} + \\text{SF} + \\text{ASF}(\\varphi, \\lambda)',
-    explanation:
-      'Loran 100 kHz signals travel via groundwaves following Earth curvature. Over seawater (conductivity ~4 S/m), signals travel near the speed of light. Over dry land or granite (~0.001 S/m), signals slow down, creating spatial errors up to hundreds of metres. eLoran maps and cancels these errors using published ASF grids and real-time differential corrections.',
+    accentVar: '--accent-eloran',
+    oneLiner: 'Excess phase retardation accumulated as LF groundwaves propagate across resistive terrestrial terrain and coastlines.',
+    math: '\\Phi_{\\text{Millington}} = \\frac{1}{2} \\left[ \\Phi_{\\text{forward}} + \\Phi_{\\text{reverse}} \\right], \\quad \\text{ASF} = \\frac{\\Phi}{2\\pi f_0}',
+    mechanism: 'Ray-paths are segmented into discrete land/sea conductivity sections (sigma: 0.0001 to 5.0 S/m), integrating phase delays in forward and reverse directions.',
+    operationalLimit: 'Uncalibrated inland terrain delays can induce 1 to 5 microseconds of timing error (300 m to 1,500 m positional offset) if left uncompensated.',
+    targetStandard: 'Calibrated eLoran ASF maps restore harbor approach positioning accuracy to < 10 m (HEA 95% compliance).',
+    deepDive: 'At coastlines transitioning from land to sea, Millington recovery produces a sudden surge in field strength and phase acceleration. SIMULORAN implements exact multi-boundary Millington integration in grwave.js with 10m Natural Earth coastal boundaries and soil conductivity classifications.',
     presetId: 'north_sea_historical',
     targetRoute: '/eloran',
     buttonLabel: 'Explore North Sea ASF Grid',
   },
   {
     id: 'groundwave-decomposition',
-    title: 'Groundwave Total Propagation Delay (PF, SF & ASF)',
+    category: 'propagation',
+    title: 'Total Groundwave Delay Decomposition (PF, SF & ASF)',
+    standard: 'Physical Phase Delay Triad',
+    citation: 'Brunavs (1977) / Johler (1956)',
     icon: Layers,
     accentVar: '--accent-eloran',
-    summary:
-      'Complete physical phase delay decomposition across atmospheric, seawater, and heterogeneous terrestrial media.',
-    math: 't_{\\text{prop}} = \\frac{d}{c} + \\text{PF}(\\eta) + \\text{SF}(\\sigma) + \\text{ASF}(d, \\sigma)',
-    explanation:
-      'Total signal propagation time decomposes into three physical terms: Primary Factor (PF: atmospheric refractivity delay along the geodesic), Secondary Factor (SF: phase lag over an ideal all-seawater spherical earth with σ = 4.0 S/m), and Additional Secondary Factor (ASF: excess phase retardation accumulated over resistive land and terrain profiles calculated via Millington boundary integration).',
+    oneLiner: 'Total LF propagation delay is rigorously partitioned into atmospheric, seawater, and heterogeneous terrestrial terms.',
+    math: 't_{\\text{prop}} = \\frac{d}{c} + \\text{PF}(\\eta) + \\text{SF}(d, \\sigma_{\\text{sea}}) + \\text{ASF}(d, \\sigma_{\\text{land}})',
+    mechanism: 'Primary Factor (PF) accounts for atmospheric refractivity (n approx 1.000338). Secondary Factor (SF) models all-seawater spherical earth curvature. ASF models excess land impedance.',
+    operationalLimit: 'Ignoring tropospheric weather changes (temperature, humidity, pressure) induces up to 100 ns diurnal phase variations across 500 km paths.',
+    targetStandard: 'Brunavs (1977) polynomial evaluation accuracy within +/- 1.5 ns against full Sommerfeld wave equations.',
+    deepDive: 'Total groundwave transit time decomposes into: PF (speed of light in air c/n), SF (curvature and finite conductivity over seawater sigma = 4.0 S/m), and ASF (excess delay from terrain, elevation, and geology). In maritime environments, SF dominates at long distances while ASF becomes paramount near ports.',
     presetId: 'north_sea_historical',
     targetRoute: '/eloran',
     buttonLabel: 'Inspect Groundwave Delay Grids',
   },
   {
     id: 'gri',
-    title: 'Group Repetition Interval (GRI) & 100 kHz Pulses',
+    category: 'rf',
+    title: 'Group Repetition Interval (GRI) & Chain Architecture',
+    standard: 'ITU-R CCIR Rec. 589 Allocation',
+    citation: 'USCG Navigation Center (NAVCEN)',
     icon: Activity,
     accentVar: '--accent-eloran',
-    summary:
-      'Spectral confinement and periodic pulse timing structure designed to resist interference.',
-    math: 'E(t) = 0.5\\left(1 + \\cos\\left(\\frac{\\pi t}{T_{\\text{pulse}}}\\right)\\right), \\quad f_0 = 100\\text{ kHz}',
-    explanation:
-      'Each station emits a group of 8 or 9 pulses with a fast rise time to allow sampling at the 3rd carrier cycle (30 µs), prior to the arrival of skywaves reflected off the ionosphere. The GRI uniquely identifies the transmitting chain and prevents multi-chain cross-rate interference.',
+    oneLiner: 'Periodic pulse group repetition uniquely identifies transmitting chains and prevents cross-rate co-channel interference.',
+    math: '\\text{Period} = \\text{GRI} \\times 10\\,\\mu\\text{s}, \\quad \\text{e.g., GRI } 8390 = 83\\,900\\,\\mu\\text{s} \\ (11.92\\,\\text{Hz})',
+    mechanism: 'Transmitters emit groups of 8 pulses (spaced 1,000 µs apart), with the Master emitting a 9th pulse for visual and algorithmic chain identification.',
+    operationalLimit: 'Cross-rate interference occurs when pulses from two distinct chains overlap in time; phase code sequences cancel these periodic cross-signals.',
+    targetStandard: 'Atomic synchronization maintains GRI pulse jitter < 25 ns RMS relative to UTC(BIPM).',
+    deepDive: 'The GRI value represents the interval in tens of microseconds between successive pulse group transmissions. Because multiple chains operate on the identical 100 kHz carrier frequency worldwide, distinct GRIs ensure that overlapping pulses from adjacent chains are rejected by coherent averaging loops.',
     presetId: 'rotterdam_harbor_approach',
     targetRoute: '/waveforms',
     buttonLabel: 'Open RF Oscilloscope',
   },
   {
     id: 'uscg-pulse',
+    category: 'rf',
     title: '100 kHz Standard Pulse & USCG Envelope Specification',
+    standard: 'USCG COMDTINST M16562.4A Specification',
+    citation: 'FAA / USCG Loran-C Specification (1994)',
     icon: Radio,
     accentVar: '--accent-eloran',
-    summary:
-      'USCG Specification COMDTINST M16562.4A definition of the standard Loran 100 kHz RF pulse waveform and mathematical envelope.',
-    math: 'E(t) = A \\left( \\frac{t}{\\tau} \\right)^2 e^{-2(t - \\tau)/\\tau}, \\quad \\tau = 65\\,\\mu\\text{s}, \\quad f_0 = 100\\,\\text{kHz}',
-    explanation:
-      'Every Loran-C and eLoran pulse is transmitted on a carrier center frequency of 100 kHz with 99% of its spectral radiated energy strictly confined within the 90–110 kHz band. The standard pulse envelope exhibits an asymmetric exponential rise peaking at tau = 65 µs from virtual start, followed by an exponential tail decaying through 300 µs. This steep rise is engineered to maximize dE/dt at early cycles while complying with international CCIR Rec. 589 spectrum limits.',
+    oneLiner: 'Asymmetric exponential pulse envelope designed to concentrate radiated energy strictly inside the 90-110 kHz band.',
+    math: 'i(t) = A \\cdot \\left(\\frac{t}{\\tau}\\right)^2 e^{-2(t - \\tau)/\\tau} \\sin(\\omega_c t), \\quad \\tau = 65\\,\\mu\\text{s}, \\quad f_c = 100\\,\\text{kHz}',
+    mechanism: 'Steep rise time maximizes energy in early cycles (first 30 µs), followed by a controlled exponential decay through 300 µs.',
+    operationalLimit: 'Excessive envelope-to-cycle difference (ECD) distorts the zero crossing position, requiring calibrated envelope tracking.',
+    targetStandard: '> 99.0% of total spectral power confined within 90 kHz to 110 kHz international radionavigation spectrum.',
+    deepDive: 'The standard USCG pulse exhibits an envelope peak at tau = 65 µs from virtual origin. At the 3rd carrier cycle (t = 30 µs), the normalized amplitude reaches exactly e(30)/e(65) = 0.62534 with a steep derivative de/dt, providing the optimal point for carrier phase tracking.',
     presetId: 'rotterdam_harbor_approach',
     targetRoute: '/waveforms',
     buttonLabel: 'Inspect 100 kHz Waveform in Oscilloscope',
   },
   {
     id: 'rf-carrier-modulation',
-    title: '100 kHz Modulated Carrier Waveform & Phase Coherence',
+    category: 'rf',
+    title: '100 kHz Modulated Carrier & Phase Code Inversion',
+    standard: 'Phase Code Modulation Standard',
+    citation: 'RTCM 10403.3 / USCG M16562.4A',
     icon: Activity,
     accentVar: '--accent-eloran',
-    summary:
-      'Mathematical synthesis of the instantaneous 100 kHz RF carrier signal, phase-code state, and envelope.',
-    math: 's(t) = A \\cdot t^2 e^{-2t/t_p} \\sin(2\\pi f_0 t + \\phi), \\quad f_0 = 100\\text{ kHz}',
-    explanation:
-      'The instantaneous radiated electric field is the product of the USCG asymmetric double-exponential envelope and a 100 kHz sinusoidal carrier. The phase parameter φ ∈ {0, π} rotates by 180° according to the 8-pulse phase-code sequence (e.g. Master Group A: + + - - + - + -), canceling continuous wave (CW) interference and cross-rate chain signals.',
+    oneLiner: 'Bi-phase (0° / 180°) modulation across consecutive pulse groups cancels continuous-wave interference and skywaves.',
+    math: 's(t) = i(t) \\cdot \\cos(\\omega_c t + \\phi_k), \\quad \\phi_k \\in \\{0, \\pi\\}, \\quad \\text{Group A: } (++--+-+-)',
+    mechanism: 'Consecutive pulses in a GRI cycle are phase-inverted according to Barker-like sequences (Group A and Group B). Coherent summation cancels unmodulated CW.',
+    operationalLimit: 'Continuous Wave (CW) near-carrier jammers are attenuated by > 35 dB when integrating across alternating phase groups.',
+    targetStandard: 'Receiver cross-correlation suppression > 40 dB against non-synchronized transmitters.',
+    deepDive: 'Phase coding serves two fundamental objectives: it eliminates continuous wave (CW) interferers by algebraic cancellation upon coherent integration across Group A and Group B, and it prevents multi-hop ionospheric skywaves from prior pulses from constructively biasing subsequent groundwave tracking cycles.',
     presetId: 'rotterdam_harbor_approach',
     targetRoute: '/waveforms',
     buttonLabel: 'Inspect Carrier Phase in Oscilloscope',
   },
   {
     id: 'skywave-discrimination',
+    category: 'rf',
     title: 'Groundwave Sampling & Skywave Multi-path Discrimination',
+    standard: 'D-Layer / E-Layer Ionospheric Model',
+    citation: 'Doherty et al. / USCG R&D Center',
     icon: Activity,
     accentVar: '--status-ok',
-    summary:
-      'How Loran receivers eliminate ionospheric multi-path delay distortion by sampling the 3rd zero crossing before skywaves arrive.',
-    math: 't_{\\text{sample}} = 3 \\cdot T_{\\text{carrier}} = 30\\,\\mu\\text{s} < t_{\\text{skywave}} = t_{\\text{ground}} + \\frac{\\Delta D_{\\text{extra}}}{c}',
-    explanation:
-      'Groundwaves propagate along the curvature of the Earth, while skywaves bounce off the ionospheric D-layer (daytime: 70–90 km) or E-layer (nighttime: 100–110 km). Due to the extra geometrical path length delta-D = 2*sqrt(h^2 + (d/2)^2) - d, skywaves arrive 35 to 70 µs after the groundwave leading edge. Loran receivers lock tracking loops to the Standard Zero Crossing (SZC) at the positive-going 3rd zero crossing (exactly 30 µs from onset), completely immune to ionospheric fading and delay variation.',
+    oneLiner: 'Sampling at the 3rd zero crossing (30 µs) achieves 100% immunity against delayed ionospheric skywave reflections.',
+    math: 't_{\\text{sample}} = 30\\,\\mu\\text{s} < t_{\\text{skywave}} = t_{\\text{ground}} + \\frac{2\\sqrt{h_{\\text{iono}}^2 + (d/2)^2} - d}{c}',
+    mechanism: 'Groundwaves propagate via Earth surface diffraction. Skywaves reflect off the ionospheric D-layer (70-90 km) and always arrive > 35 µs after groundwave onset.',
+    operationalLimit: 'At ranges > 1,200 km, groundwaves attenuate heavily while skywaves dominate, causing severe cycle ambiguity if sampled after 35 µs.',
+    targetStandard: 'Zero-crossing sampling tolerance locked to +/- 50 ns before first skywave arrival.',
+    deepDive: 'Because the ionosphere lies at least 70 km above Earth, the reflected slant path is geometrically longer than the direct surface geodesic. By locking the receiver tracking loop strictly to the Standard Zero Crossing (SZC) at exactly 30 µs from onset, the measurement is completed before the earliest skywave energy reaches the antenna.',
     presetId: 'rotterdam_harbor_approach',
     targetRoute: '/waveforms',
     buttonLabel: 'Simulate Skywave in Oscilloscope',
   },
   {
     id: 'cycle-selection',
-    title: 'Cycle Selection, Envelope Ratio Tests & Boyce (2006) Model',
+    category: 'resilience',
+    title: 'Cycle Selection, Envelope Ratio & Boyce (2006) Model',
+    standard: 'Carrier Cycle Slip Prevention',
+    citation: 'Boyce, Lo, Powell, & Enge (ILA 2006)',
     icon: ShieldCheck,
     accentVar: '--accent-loran-c',
-    summary:
-      'Mathematical mechanics of envelope ratio testing to prevent catastrophic 10 µs carrier cycle slips under low SNR.',
-    math: '\\text{Ratio}(\\tau) = \\frac{E(\\tau - 15\\,\\mu\\text{s})}{E(\\tau)}, \\quad \\text{SZC: } \\text{Ratio}(30) \\approx 0.3966',
-    explanation:
-      'Because each 100 kHz carrier cycle spans 10 µs (corresponding to approximately 3,000 metres in hyperbolic range difference), mistaking the 3rd cycle for the 2nd or 4th causes a severe 3 km fix error. Sourced from Boyce, Lo, Powell, & Enge (ILA 2006, Section II-D), receivers test the ratio of envelope samples spaced 15 µs apart: Ratio(tau) = E(tau - 15)/E(tau). Validating that Ratio(30) lies within [Ratio(25), Ratio(35)] (bounds ~0.2538 to ~0.5180) ensures cycle lock within a +/- 5 µs safety margin. Wrong-cycle probability follows P[Wrong Cycle] = erfc(5 / (sigma_ECD * sqrt(2))), with historical Austron sigma = 42/sqrt(N*SNR) µs and modern Peterson sigma = 28/sqrt(N*SNR) µs.',
+    oneLiner: 'Envelope ratio testing prevents catastrophic 10 µs carrier cycle slips (3 km position jump) in low SNR environments.',
+    math: '\\text{Ratio}(\\tau) = \\frac{E(\\tau - 15\\,\\mu\\text{s})}{E(\\tau)}, \\quad P[\\text{Slip}] = \\text{erfc}\\left( \\frac{5\\,\\mu\\text{s}}{\\sigma_{\\text{ECD}} \\sqrt{2}} \\right)',
+    mechanism: 'Receivers compare envelope amplitude samples spaced 15 µs apart: Ratio(30) = E(15)/E(30) approx 0.3966. If ratio falls outside [0.25, 0.52], a cycle slip is flagged.',
+    operationalLimit: 'Mistaking the 3rd cycle for the 2nd or 4th introduces exactly +/- 10 µs (approx 3,000 m error in hyperbolic range difference).',
+    targetStandard: 'Wrong-cycle slip probability P(wc) < 10^-5 at SNR >= 0 dB with coherent pulse averaging.',
+    deepDive: 'At 100 kHz, one full carrier cycle spans exactly 10 microseconds, corresponding to 3 km of propagation distance. Boyce et al. (Stanford University) established that tracking the ratio of envelope samples spaced 15 µs apart provides a robust metric that isolates the 3rd cycle with a +/- 5 µs margin of safety.',
     presetId: 'rotterdam_harbor_approach',
     targetRoute: '/waveforms',
     buttonLabel: 'Launch Boyce Monte Carlo Simulator',
   },
   {
     id: 'fusion',
-    title: 'GNSS–eLoran Multi-Source PNT Resiliency',
+    category: 'resilience',
+    title: 'GNSS-eLoran Multi-Source PNT Resiliency & EW Defense',
+    standard: 'Sovereign Resilient PNT Standard',
+    citation: 'UK General Lighthouse Authorities (GLA)',
     icon: ShieldCheck,
     accentVar: '--status-ok',
-    summary:
-      'Complementary integration between satellite GNSS and high-power terrestrial eLoran.',
-    math: '\\mathbf{x}_{\\text{fused}} = w_{\\text{eLoran}} \\mathbf{x}_{\\text{eLoran}} + w_{\\text{GNSS}} \\mathbf{x}_{\\text{GNSS}}',
-    explanation:
-      'GNSS operates at microwave frequencies (1.2–1.5 GHz) with extremely faint satellite signals (−130 dBm), vulnerable to accidental jamming and intentional spoofing. eLoran operates at 100 kHz (LF) with megawatt transmitter towers emitting high-power terrestrial groundwaves that penetrate cities, fjords, and electronic jamming. Together they provide sovereign, uninterrupted positioning, navigation, and timing (PNT).',
+    oneLiner: 'Complementary fusion of UHF satellite signals (faint, microwave) with LF megawatt terrestrial groundwaves.',
+    math: '\\mathbf{x}_{\\text{BLUE}} = \\left( P_{\\text{GNSS}}^{-1} + P_{\\text{eLoran}}^{-1} \\right)^{-1} \\left( P_{\\text{GNSS}}^{-1} \\mathbf{x}_{\\text{GNSS}} + P_{\\text{eLoran}}^{-1} \\mathbf{x}_{\\text{eLoran}} \\right)',
+    mechanism: 'Best Linear Unbiased Estimator (BLUE) weights GNSS and eLoran covariance matrices. Autonomous integrity monitoring detects and isolates jammed or spoofed satellite signals.',
+    operationalLimit: 'GNSS signals (-130 dBm) are easily jammed by low-power 1-watt chirp devices; megawatt eLoran groundwaves are immune to UHF jamming.',
+    targetStandard: 'Zero-downtime maritime bridge navigation continuity during 100% GNSS denial.',
+    deepDive: 'Satellite GNSS and terrestrial eLoran represent ideal complementary radionavigation systems. GNSS provides high vertical and horizontal precision in open sky but is fragile against electronic warfare and space weather. eLoran radiates multi-megawatt LF signals at 100 kHz that penetrate urban canyons, maritime fjords, and high-power RF jammers.',
     presetId: 'dover_strait_tss',
     targetRoute: '/eloran',
     buttonLabel: 'Test Dover Strait GNSS Outage',
   },
   {
     id: 'ast-parser',
+    category: 'resilience',
     title: 'Sandboxed AST Mathematical Expression Parser',
+    categoryLabel: 'Security & Computation',
+    standard: 'Zero-Eval Safe Syntax Tree',
+    citation: 'Formal Grammar & Recursive Descent',
     icon: Cpu,
     accentVar: '--status-ok',
-    summary:
-      'Formal recursive descent grammar and AST evaluation for user-defined spatial conductivity functions.',
-    math: '\\text{Eval}: \\mathrm{AST}(f(x, y)) \\to \\mathbb{R}, \\quad \\text{Sec: 0 eval()}',
-    explanation:
-      'Custom ground conductivity distributions entered by users are transformed into an Abstract Syntax Tree (AST) using a strict Recursive Descent Parser. The tree is evaluated via safe token dispatch without dynamic code execution (0 eval(), 0 new Function()), guaranteeing absolute security while computing complex mathematical spatial models.',
+    oneLiner: 'Sandboxed recursive descent compiler evaluates user-defined spatial conductivity distributions without dynamic code execution.',
+    math: '\\text{Tokenize}(s) \\to \\text{AST Node} \\to \\text{Safe Dispatch Evaluation}, \\quad \\text{Sec: 0 eval(), 0 new Function()}',
+    mechanism: 'Mathematical expressions are lexed into tokens, compiled into a typed binary syntax tree, and evaluated via pure mathematical functions.',
+    operationalLimit: 'Standard JavaScript eval() introduces catastrophic arbitrary code execution vulnerabilities in scientific web applications.',
+    targetStandard: '100% compliant with strict Content Security Policy (CSP) with zero dynamic code injection vectors.',
+    deepDive: 'SIMULORAN includes a self-contained Recursive Descent Parser for user-customizable spatial ASF conductivity distributions. The compiler verifies syntactic grammar, checks for division-by-zero singularities, and executes safe AST traversal with zero reliance on eval() or Function constructors.',
     presetId: 'north_sea_historical',
     targetRoute: '/eloran',
     buttonLabel: 'Explore North Sea ASF Grid',
@@ -181,6 +238,10 @@ const concepts = [
 ];
 
 export default function Learn() {
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedTopics, setExpandedTopics] = useState({});
+
   useEffect(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
       const hash = window.location.hash.slice(1);
@@ -190,6 +251,7 @@ export default function Learn() {
       }
     }
   }, []);
+
   const navigate = useNavigate();
   const { loadPreset } = useSimulationStore();
 
@@ -198,97 +260,267 @@ export default function Learn() {
     navigate(route);
   };
 
+  const toggleDeepDive = (id) => {
+    setExpandedTopics((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Filtered concepts
+  const filteredConcepts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return CONCEPTS.filter((c) => {
+      const matchesCat = selectedCategory === 'all' || c.category === selectedCategory;
+      if (!matchesCat) return false;
+      if (!q) return true;
+      return (
+        c.title.toLowerCase().includes(q) ||
+        c.oneLiner.toLowerCase().includes(q) ||
+        c.standard.toLowerCase().includes(q) ||
+        c.citation.toLowerCase().includes(q) ||
+        c.mechanism.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q)
+      );
+    });
+  }, [selectedCategory, searchQuery]);
+
   return (
     <div
       className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10"
       style={{ fontFamily: 'var(--font-sans)' }}
     >
       {/* Page Header */}
-      <header>
+      <header className="space-y-3">
         <div
-          className="flex items-center gap-2 font-mono text-xs font-semibold uppercase tracking-wider mb-1"
+          className="flex items-center gap-2 font-mono text-xs font-semibold uppercase tracking-wider"
           style={{ color: 'var(--accent-eloran)' }}
         >
-          <BookOpen size={14} aria-hidden="true" /> Knowledge Base & Interactive Guides
+          <BookOpen size={15} aria-hidden="true" />
+          <span>Interactive Physics &amp; Mathematical Knowledge Base</span>
         </div>
         <h1
           className="text-3xl md:text-4xl font-bold font-mono tracking-tight"
           style={{ color: 'var(--text-primary)' }}
         >
-          Loran-C & eLoran Theoretical Foundations
+          Loran-C &amp; eLoran Theoretical Foundations
         </h1>
-        <p className="text-sm mt-2 max-w-3xl leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          Explore the physics of low-frequency radio navigation, hyperbolic multilateration,
-          relativistic groundwave delays, and resilient multi-sensor fusion. Each guide includes a
-          one-click launcher that configures the live simulator to demonstrate the concept.
+        <p className="text-sm max-w-3xl leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          Concise, mathematically rigorous principles governing low-frequency radionavigation,
+          hyperbolic multilateration, Millington groundwave physics, and sovereign PNT resilience.
+          Every topic provides key invariants, standard bounds, and one-click simulator verification.
         </p>
+
+        {/* Search & Category Filter Navigation */}
+        <div className="pt-4 space-y-3">
+          {/* Search Bar */}
+          <div className="relative max-w-md">
+            <Search
+              size={15}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ color: 'var(--text-dim)' }}
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search theory, formulas, standards (e.g. Millington, GDOP, Boyce, 100 kHz)..."
+              className="w-full pl-9 pr-9 py-2 rounded-xl text-xs font-mono transition focus:outline-none"
+              style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)',
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded text-[var(--text-dim)] hover:text-[var(--text-primary)]"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Category Filter Pills */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {CATEGORIES.map((cat) => {
+              const Icon = cat.icon;
+              const isActive = selectedCategory === cat.id;
+              const count = cat.id === 'all'
+                ? CONCEPTS.length
+                : CONCEPTS.filter((c) => c.category === cat.id).length;
+
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center gap-2 transition cursor-pointer"
+                  style={{
+                    background: isActive ? 'var(--accent-eloran)' : 'var(--bg-surface)',
+                    color: isActive ? '#050b14' : 'var(--text-secondary)',
+                    border: `1px solid ${isActive ? 'var(--accent-eloran)' : 'var(--border-subtle)'}`,
+                    fontWeight: isActive ? 600 : 400,
+                  }}
+                >
+                  <Icon size={13} aria-hidden="true" />
+                  <span>{cat.label}</span>
+                  <span
+                    className="text-[10px] px-1.5 py-0.2 rounded-full font-mono"
+                    style={{
+                      background: isActive ? 'rgba(0,0,0,0.2)' : 'var(--bg-subtle)',
+                      color: isActive ? '#050b14' : 'var(--text-dim)',
+                    }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </header>
 
-      {/* Concept Cards */}
+      {/* Results Count / Active Filter Notice */}
+      <div className="flex items-center justify-between text-xs font-mono text-[var(--text-dim)] pb-1 border-b border-[var(--border-subtle)]">
+        <span>
+          Showing <strong className="text-[var(--text-primary)]">{filteredConcepts.length}</strong> of {CONCEPTS.length} theoretical topics
+          {searchQuery && <span> matching &ldquo;{searchQuery}&rdquo;</span>}
+        </span>
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery('')}
+            className="text-[var(--accent-eloran)] hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            Reset filter
+          </button>
+        )}
+      </div>
+
+      {/* Concept Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {concepts.map((c) => {
+        {filteredConcepts.map((c) => {
           const Icon = c.icon;
+          const isExpanded = Boolean(expandedTopics[c.id]);
+
           return (
             <article
               key={c.id}
               id={c.id}
-              className="rounded-2xl p-6 flex flex-col justify-between space-y-4 scroll-mt-24"
+              className="rounded-2xl p-6 flex flex-col justify-between space-y-4 scroll-mt-24 transition-all"
               style={{
                 background: 'var(--bg-surface)',
                 border: '1px solid var(--border-subtle)',
                 boxShadow: 'var(--shadow-card)',
               }}
             >
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center"
-                    style={{
-                      background: `var(${c.accentVar}-subtle, var(--bg-subtle))`,
-                      color: `var(${c.accentVar})`,
-                      border: `1px solid var(${c.accentVar}-border, var(--border-subtle))`,
-                    }}
-                  >
-                    <Icon size={16} aria-hidden="true" />
+              {/* Header row: Icon, Category & Standard Badge */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                      style={{
+                        background: `var(${c.accentVar}-subtle, var(--bg-subtle))`,
+                        color: `var(${c.accentVar})`,
+                        border: `1px solid var(${c.accentVar}-border, var(--border-subtle))`,
+                      }}
+                    >
+                      <Icon size={16} aria-hidden="true" />
+                    </div>
+                    <span
+                      className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded font-semibold"
+                      style={{
+                        background: 'var(--bg-subtle)',
+                        color: 'var(--text-secondary)',
+                        border: '1px solid var(--border-subtle)',
+                      }}
+                    >
+                      {c.standard}
+                    </span>
                   </div>
+
                   <span
-                    className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded"
-                    style={{
-                      background: 'var(--bg-subtle)',
-                      color: 'var(--text-dim)',
-                      border: '1px solid var(--border-subtle)',
-                    }}
+                    className="text-[9px] font-mono text-[var(--text-dim)] shrink-0 hidden sm:inline"
+                    title={c.citation}
                   >
-                    {c.id.toUpperCase()}
+                    {c.citation}
                   </span>
                 </div>
 
+                {/* Title & Core One-Liner */}
                 <h2 className="text-base font-bold font-mono" style={{ color: 'var(--text-primary)' }}>
                   {c.title}
                 </h2>
 
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  {c.summary}
+                <p className="text-xs font-sans leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  {c.oneLiner}
                 </p>
               </div>
 
-              {/* Math Formula */}
+              {/* Math Formula Box */}
               <div
-                className="px-4 py-2.5 rounded-lg text-xs overflow-x-auto flex items-center gap-3"
+                className="px-4 py-2.5 rounded-xl text-xs overflow-x-auto flex items-center gap-3"
                 style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}
               >
-                <span className="text-[10px] font-mono uppercase font-bold tracking-wider shrink-0" style={{ color: 'var(--text-dim)' }}>
+                <span
+                  className="text-[10px] font-mono uppercase font-bold tracking-wider shrink-0"
+                  style={{ color: 'var(--text-dim)' }}
+                >
                   Formula:
                 </span>
                 <MathView math={c.math} />
               </div>
 
-              {/* Explanation */}
-              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
-                {c.explanation}
-              </p>
+              {/* Structured Key Points: Mechanism, Limit & Standard */}
+              <div className="space-y-2 text-xs font-sans pt-1">
+                <div className="flex items-start gap-2">
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-subtle)] text-[var(--text-dim)] border border-[var(--border-subtle)] shrink-0 mt-0.5">
+                    PHYSICS
+                  </span>
+                  <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                    <strong className="text-[var(--text-primary)]">Mechanism:</strong> {c.mechanism}
+                  </p>
+                </div>
 
-              {/* Interactive Simulator Launcher */}
+                <div className="flex items-start gap-2">
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--status-warn-subtle)] text-[var(--status-warn)] border border-[var(--status-warn-border)] shrink-0 mt-0.5">
+                    LIMIT
+                  </span>
+                  <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                    <strong className="text-[var(--text-primary)]">Boundary:</strong> {c.operationalLimit}
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-2">
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--status-ok-subtle)] text-[var(--status-ok)] border border-[var(--status-ok-border)] shrink-0 mt-0.5">
+                    SPEC
+                  </span>
+                  <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                    <strong className="text-[var(--text-primary)]">Standard:</strong> {c.targetStandard}
+                  </p>
+                </div>
+              </div>
+
+              {/* Expandable Technical Deep-Dive */}
+              {c.deepDive && (
+                <div className="pt-2 border-t border-[var(--border-subtle)]">
+                  <button
+                    onClick={() => toggleDeepDive(c.id)}
+                    className="text-[11px] font-mono text-[var(--text-dim)] hover:text-[var(--text-primary)] flex items-center justify-between w-full py-1 cursor-pointer transition"
+                  >
+                    <span>{isExpanded ? 'Hide Theoretical Derivation' : 'Expand Theoretical Derivation'}</span>
+                    {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  </button>
+
+                  {isExpanded && (
+                    <div className="mt-2 p-3 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] text-[11px] font-sans leading-relaxed text-[var(--text-secondary)] animate-fadeIn">
+                      {c.deepDive}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Interactive Simulator Launcher CTA */}
               <div className="pt-2 border-t border-[var(--border-subtle)]">
                 <button
                   onClick={() => handleLaunch(c.presetId, c.targetRoute)}
@@ -307,7 +539,8 @@ export default function Learn() {
                     e.currentTarget.style.opacity = '1';
                   }}
                 >
-                  {c.buttonLabel} <ArrowRight size={14} aria-hidden="true" />
+                  <span>{c.buttonLabel}</span>
+                  <ArrowRight size={14} aria-hidden="true" />
                 </button>
               </div>
             </article>
@@ -315,95 +548,92 @@ export default function Learn() {
         })}
       </div>
 
-      {/* Deep-Dive Theoretical Foundations Section */}
+      {/* Deep-Dive Physical Foundations Section */}
       <section className="space-y-6 pt-6 border-t border-[var(--border-subtle)]">
         <div>
           <div
             className="flex items-center gap-2 font-mono text-xs font-semibold uppercase tracking-wider mb-1"
             style={{ color: 'var(--accent-eloran)' }}
           >
-            <BookOpen size={14} aria-hidden="true" /> Technical Reference & Derivations
+            <Layers size={14} aria-hidden="true" /> Electromagnetic &amp; Geodetic Physics
           </div>
           <h2
-            className="text-2xl font-bold font-mono tracking-tight"
+            className="text-2xl font-bold tracking-tight font-mono"
             style={{ color: 'var(--text-primary)' }}
           >
-            Groundwave Propagation & Atmospheric Delay Physics
+            Physical Foundations &amp; Propagation Models
           </h2>
-          <p className="text-xs mt-1 max-w-3xl leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            Mathematical formulations and scientific derivations defining low-frequency propagation velocity, surface impedance, and multi-boundary phase recovery.
+          <p className="text-sm mt-1 max-w-3xl" style={{ color: 'var(--text-secondary)' }}>
+            Mathematical formulations implemented in the SIMULORAN physics engine, verified with exact
+            SI units and published academic references.
           </p>
         </div>
 
+        {/* 4 Physical Foundation Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Card 1: Sommerfeld Impedance */}
+          {/* Card 1: WGS-84 Geodesics */}
           <div
-            className="rounded-xl p-5 border space-y-3 font-mono text-xs"
+            className="rounded-2xl p-5 border space-y-3 font-mono text-xs"
             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
           >
             <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--border-subtle)' }}>
-              <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                1. Sommerfeld Numerical Distance & Surface Impedance
+              <span className="font-bold text-sm text-[var(--text-primary)]">
+                1. WGS-84 Ellipsoidal Geodesics
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--status-ok-subtle)] text-[var(--status-ok)] border border-[var(--status-ok-border)]">
-                Sommerfeld (1909) / Norton (1936)
+                Karney (2013)
               </span>
             </div>
             <p className="text-[11px] leading-relaxed text-[var(--text-secondary)] font-sans">
-              Groundwave propagation over flat, finite-conductivity terrain is governed by the complex surface impedance <span className="font-mono text-[var(--text-primary)]">η</span> and dimensionless Sommerfeld numerical distance <span className="font-mono text-[var(--text-primary)]">p</span>:
+              Terrestrial LF waves traverse the curved oblate Earth ellipsoid. Spherical trigonometry introduces
+              errors up to ~0.5% (several kilometers), catastrophic for precision eLoran navigation:
             </p>
-            <div className="p-2.5 rounded bg-[var(--bg-subtle)] border border-[var(--border-subtle)] overflow-x-auto text-xs">
-              <MathView math="p = \frac{\pi d}{\lambda} |\eta|^2, \quad \eta = \frac{1}{\sqrt{\epsilon_r - j \frac{\sigma}{\omega \epsilon_0}}}" />
+            <div className="p-2.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] overflow-x-auto text-xs">
+              <MathView math="s = b \int_0^{\sigma} \sqrt{1 + k^2 \sin^2 \sigma'} \, d\sigma', \quad a = 6378137.0\text{ m}, \quad f = 1/298.257223563" />
             </div>
-            <div className="text-[10px] leading-normal text-[var(--text-muted)] space-y-0.5 font-mono bg-[var(--bg-subtle)]/50 p-2 rounded border border-[var(--border-subtle)]">
-              <div><strong>SI Units:</strong> <span className="text-[var(--text-primary)]">d</span> in meters [m], <span className="text-[var(--text-primary)]">λ = c/f₀</span> ≈ 2997.9 m [m], <span className="text-[var(--text-primary)]">σ</span> in Siemens per meter [S·m⁻¹], <span className="text-[var(--text-primary)]">ω = 2πf₀</span> ≈ 6.283×10⁵ [rad·s⁻¹], <span className="text-[var(--text-primary)]">ε₀</span> ≈ 8.854×10⁻¹² [F·m⁻¹], <span className="text-[var(--text-primary)]">εᵣ, η, p</span> dimensionless [-].</div>
+            <div className="text-[10px] leading-normal text-[var(--text-muted)] space-y-0.5 font-mono bg-[var(--bg-subtle)]/50 p-2.5 rounded-lg border border-[var(--border-subtle)]">
+              <div><strong>SI Parameters:</strong> Equatorial radius <strong>a = 6,378,137.0 m</strong>, flattening <strong>f = 1/298.257223563</strong>, geodesic distance <strong>s [m]</strong>.</div>
               <div className="text-[9px] pt-1 border-t border-[var(--border-subtle)] text-[var(--text-dim)]">
-                <strong>Citations:</strong> Sommerfeld (1909), <em>Ann. Phys.</em> 333(4); Norton (1936), <em>Proc. IRE</em> 24(10); ITU-R Recommendation P.368-10.
+                <strong>Accuracy:</strong> Millimeter precision at antipodal distances via GeographicLib algorithms.
               </div>
             </div>
-            <p className="text-[11px] leading-relaxed text-[var(--text-secondary)] font-sans">
-              The attenuation function <span className="font-mono text-[var(--text-primary)]">F(p)</span> produces both field strength loss and phase retardation. For 100 kHz LF signals, groundwave field strength curves are sourced from ITU-R P.368-10 / GRWAVE, with phase delay computed via analytical Sommerfeld-Norton integrals.
-            </p>
           </div>
 
-          {/* Card 2: Millington Mixed-Path */}
+          {/* Card 2: Millington Multi-Boundary */}
           <div
-            className="rounded-xl p-5 border space-y-3 font-mono text-xs"
+            className="rounded-2xl p-5 border space-y-3 font-mono text-xs"
             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
           >
             <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--border-subtle)' }}>
-              <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                2. Millington's Reciprocal Mixed-Path Method
+              <span className="font-bold text-sm text-[var(--text-primary)]">
+                2. Millington Multi-Boundary Method
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--accent-eloran-subtle)] text-[var(--accent-eloran)] border border-[var(--accent-eloran-border)]">
-                Millington (1949)
+              <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--status-ok-subtle)] text-[var(--status-ok)] border border-[var(--status-ok-border)]">
+                ITU-R P.368-10
               </span>
             </div>
             <p className="text-[11px] leading-relaxed text-[var(--text-secondary)] font-sans">
-              When a 100 kHz wave traverses multiple media (e.g. land followed by sea), forward-only calculation violates electromagnetic reciprocity. Millington's method computes the arithmetic mean of forward and reverse cumulative boundary evaluations:
+              Mixed land-sea propagation paths accumulate non-linear phase retardation across conductivity discontinuities:
             </p>
-            <div className="p-2.5 rounded bg-[var(--bg-subtle)] border border-[var(--border-subtle)] overflow-x-auto text-xs">
-              <MathView math="\Phi_F = \Delta t_1(x_1) + \sum_{k=2}^M \left[ \Delta t_k(x_k) - \Delta t_k(x_{k-1}) \right], \quad \text{ASF} = \frac{1}{2}\left(\Phi_F + \Phi_R\right)" />
+            <div className="p-2.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] overflow-x-auto text-xs">
+              <MathView math="\Phi_F = \Delta t_1(x_1) + \sum_{k=2}^M [\Delta t_k(x_k) - \Delta t_k(x_{k-1})], \quad \text{ASF} = \frac{1}{2}(\Phi_F + \Phi_R)" />
             </div>
-            <div className="text-[10px] leading-normal text-[var(--text-muted)] space-y-0.5 font-mono bg-[var(--bg-subtle)]/50 p-2 rounded border border-[var(--border-subtle)]">
-              <div><strong>SI Units & Terms:</strong> <span className="text-[var(--text-primary)]">x_k = \sum d_i</span> cumulative distance [km], <span className="text-[var(--text-primary)]">Δt_k(x)</span> homogeneous delay over medium <span className="text-[var(--text-primary)]">k</span> [µs], <span className="text-[var(--text-primary)]">ASF</span> total delay [µs] or [m] via <span className="text-[var(--text-primary)]">c·Δt</span>.</div>
+            <div className="text-[10px] leading-normal text-[var(--text-muted)] space-y-0.5 font-mono bg-[var(--bg-subtle)]/50 p-2.5 rounded-lg border border-[var(--border-subtle)]">
+              <div><strong>Millington Recovery:</strong> At land-to-sea boundaries, <code className="text-[var(--text-primary)]">{'Δt_k(x_k) - Δt_k(x_{k-1}) < 0'}</code>, creating rapid phase recovery.</div>
               <div className="text-[9px] pt-1 border-t border-[var(--border-subtle)] text-[var(--text-dim)]">
-                <strong>Citations:</strong> Millington, G. (1949), <em>Proc. IEE</em> 96(39), 53–64; ITU-R Recommendation P.368-10.
+                <strong>Standard:</strong> Verified with Millington (1949) and ITU-R Recommendation P.368-10.
               </div>
             </div>
-            <p className="text-[11px] leading-relaxed text-[var(--text-secondary)] font-sans">
-              At coastlines transitioning from land to sea, <span className="font-mono text-[var(--text-primary)]">{'Δt_k(x_k) - Δt_k(x_{k-1}) < 0'}</span>, producing classical <em>Millington recovery</em> (field strength surge and phase lag decrease). SIMULORAN implements this exact multi-boundary formulation in <span className="font-mono text-[var(--accent-eloran)]">grwave.js</span> with Natural Earth 10m GIS ray-tracing.
-            </p>
           </div>
 
           {/* Card 3: Monotonic Delay & Terrain Conductivity */}
           <div
-            className="rounded-xl p-5 border space-y-3 font-mono text-xs"
+            className="rounded-2xl p-5 border space-y-3 font-mono text-xs"
             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
           >
             <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--border-subtle)' }}>
-              <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                3. Monotonic Delay & Terrain Conductivity Bounds
+              <span className="font-bold text-sm text-[var(--text-primary)]">
+                3. Monotonic Delay &amp; Conductivity Invariant
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--status-ok-subtle)] text-[var(--status-ok)] border border-[var(--status-ok-border)]">
                 Physical Invariant
@@ -414,45 +644,42 @@ export default function Learn() {
             </p>
             <ul className="space-y-1.5 text-[11px] text-[var(--text-secondary)] font-sans list-disc list-inside">
               <li>
-                <strong className="text-[var(--text-primary)]">All-Seawater Paths:</strong> With high conductivity (<span className="font-mono">σ = 5.0 S/m</span>), the wave propagates near the speed of light in air, resulting in <span className="font-mono text-[var(--accent-eloran)]">ASF ≈ 0.00 m</span>.
+                <strong className="text-[var(--text-primary)]">Seawater Paths (σ = 5.0 S/m):</strong> Propagates near speed of light in air; accumulated <span className="font-mono text-[var(--accent-eloran)]">ASF ≈ 0.00 m</span>.
               </li>
               <li>
-                <strong className="text-[var(--text-primary)]">Resistive Land Paths:</strong> Over low-conductivity soil (<span className="font-mono">σ = 0.001–0.005 S/m</span>), cumulative delay accumulates monotonically: ~15 m at 100 km, ~45 m at 300 km, and ~75 m at 500 km (<span className="font-mono">d₁ &lt; d₂ ⟹ Δt(d₁) ≤ Δt(d₂)</span>).
+                <strong className="text-[var(--text-primary)]">Resistive Land (σ = 0.001 S/m):</strong> Accumulates monotonically: ~15 m at 100 km, ~45 m at 300 km, ~75 m at 500 km.
               </li>
               <li>
-                <strong className="text-[var(--text-primary)]">Reciprocal Equality:</strong> Delay from Transmitter to Receiver identically matches delay from Receiver to Transmitter (<span className="font-mono">ASF(A→B) = ASF(B→A)</span>).
+                <strong className="text-[var(--text-primary)]">Reciprocal Equality:</strong> Delay along trajectory A→B strictly equals B→A (<span className="font-mono">ASF(A→B) ≡ ASF(B→A)</span>).
               </li>
             </ul>
           </div>
 
           {/* Card 4: Atmospheric Refractivity */}
           <div
-            className="rounded-xl p-5 border space-y-3 font-mono text-xs"
+            className="rounded-2xl p-5 border space-y-3 font-mono text-xs"
             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
           >
             <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--border-subtle)' }}>
-              <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                4. Atmospheric Refractivity & Seasonal Drift
+              <span className="font-bold text-sm text-[var(--text-primary)]">
+                4. Tropospheric Refractivity &amp; Seasonal Drift
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--status-ok-subtle)] text-[var(--status-ok)] border border-[var(--status-ok-border)]">
                 Smith &amp; Weintraub (1953)
               </span>
             </div>
             <p className="text-[11px] leading-relaxed text-[var(--text-secondary)] font-sans">
-              The radio refractive index <span className="font-mono text-[var(--text-primary)]">n</span> of tropospheric air alters groundwave phase velocity <span className="font-mono text-[var(--text-primary)]">v = c / n</span> per Smith &amp; Weintraub (1953):
+              Tropospheric refractive index <span className="font-mono text-[var(--text-primary)]">n</span> modifies groundwave phase velocity <span className="font-mono text-[var(--text-primary)]">v = c / n</span>:
             </p>
-            <div className="p-2.5 rounded bg-[var(--bg-subtle)] border border-[var(--border-subtle)] overflow-x-auto text-xs">
+            <div className="p-2.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] overflow-x-auto text-xs">
               <MathView math="N = (n - 1) \times 10^6 = 77.6 \frac{P}{T} + 3.73 \times 10^5 \frac{e}{T^2}" />
             </div>
-            <div className="text-[10px] leading-normal text-[var(--text-muted)] space-y-0.5 font-mono bg-[var(--bg-subtle)]/50 p-2 rounded border border-[var(--border-subtle)]">
-              <div><strong>SI Units:</strong> Total pressure <span className="text-[var(--text-primary)]">P</span> in hectopascals [hPa = 100 Pa], absolute temperature <span className="text-[var(--text-primary)]">T</span> in Kelvin [K], water vapor partial pressure <span className="text-[var(--text-primary)]">e</span> in hectopascals [hPa], refractivity <span className="text-[var(--text-primary)]">N</span> in N-units (dimensionless, ppm).</div>
+            <div className="text-[10px] leading-normal text-[var(--text-muted)] space-y-0.5 font-mono bg-[var(--bg-subtle)]/50 p-2.5 rounded-lg border border-[var(--border-subtle)]">
+              <div><strong>Units:</strong> Pressure <span className="text-[var(--text-primary)]">P [hPa]</span>, temperature <span className="text-[var(--text-primary)]">T [K]</span>, vapor pressure <span className="text-[var(--text-primary)]">e [hPa]</span>, refractivity <span className="text-[var(--text-primary)]">N [ppm]</span>.</div>
               <div className="text-[9px] pt-1 border-t border-[var(--border-subtle)] text-[var(--text-dim)]">
-                <strong>Citations:</strong> Smith, E. K. &amp; Weintraub, S. (1953), <em>Proc. IRE</em> 41(8); Song, J. &amp; Son, P.-W. (2025).
+                <strong>Empirical Observation:</strong> Generates up to ~100 ns sinusoidal seasonal drift over 500 km (Song &amp; Son 2025).
               </div>
             </div>
-            <p className="text-[11px] leading-relaxed text-[var(--text-secondary)] font-sans">
-              Where seasonal temperature and humidity swings induce sinusoidal phase variations (up to ~100 ns across 500 km), calibrated in literature against Korean eLoran trials (Song & Son 2025).
-            </p>
           </div>
         </div>
       </section>
@@ -473,14 +700,14 @@ export default function Learn() {
             Empirical Field Trial Benchmarks
           </h2>
           <p className="text-sm mt-1 max-w-3xl" style={{ color: 'var(--text-secondary)' }}>
-            To guard against circular self-validation, SIMULORAN is validated against published real-world
+            To guard against circular self-validation, SIMULORAN is benchmarked against real-world
             accuracy campaigns from the Korean Nationwide eLoran Testbed (Rhee et al., 2021) and the
             Maoming Inland Ellipsoidal Geodesic Experiment (Gao et al., 2025) without artificial parameter tuning.
           </p>
         </div>
 
         <div
-          className="rounded-xl p-5 border"
+          className="rounded-2xl p-5 border"
           style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
         >
           <TrialValidationPanel />

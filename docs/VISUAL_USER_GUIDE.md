@@ -45,23 +45,49 @@ This document is the definitive operational user guide. It details **every page 
 
 SIMULORAN adopts a dark tactical theme optimized for maritime bridge displays and aerospace engineering stations. The interface is organized into five permanent layout regions:
 
-```text
-+---------------------------------------------------------------------------------------+
-|  TOP NAVIGATION BAR: Brand Logo | Route Tabs | Preset Switcher | Theme | GitHub Link   |
-+------------------------------------+--------------------------------------------------+
-|                                    |                                                  |
-|  INTERACTIVE SUBSYSTEM DRAWER      |  WEBGL VECTOR MAP / INTERACTIVE CANVAS           |
-|  - Scrollable Subsystem Cards      |  - Station Transmitters (Master / Secondaries)    |
-|  - Micro-Tuned Sliders             |  - Dynamic Receiver Node & Vessel Keel Vector    |
-|  - Precision Numerical Text Inputs |  - Geodesic Baselines & Hazard Extensions        |
-|  - Mode Selector Buttons           |  - Hyperbolic LOPs / Pseudorange Vectors         |
-|  - Expandable Inspection Modals    |  - Geographically Static GDOP Heatmap Contours   |
-|                                    |  - Floating On-Map GDOP HUD Inspector Ribbon     |
-|                                    |  - Collapsible Station Symbols Legend            |
-|                                    |                                                  |
-+------------------------------------+--------------------------------------------------+
-|  DOCKABLE TELEMETRY CONSOLE DRAWER: Live NMEA-0183 | Covariance Sparkline | NMEA Bridge|
-+---------------------------------------------------------------------------------------+
+```mermaid
+flowchart TD
+  subgraph TopNav ["Top Navigation Bar"]
+    Brand["SIMULORAN Brand and Status"]
+    Routes["Route Tabs: Loran-C | eLoran | Waveforms | Theory | About"]
+    Presets["Scenario Preset Switcher"]
+    Clock["Simulation Clock: Play / Pause"]
+    Theme["Daylight / Tactical Dark Theme"]
+    GitHub["GitHub Repository Link"]
+  end
+
+  subgraph Workspace ["Main Tactical Operational Workspace"]
+    subgraph Drawer ["Interactive Subsystem Drawer (Left)"]
+      Stations["Stations and Cross-Rate Multilateration"]
+      Chain["Chain Design and GRI Emission Delays"]
+      Clocks["Stratum-1 UTC Time Transfer and Clocks"]
+      ASF["Millington Mixed-Path Ray-Tracing and ASF"]
+      DLoran["Differential eLoran (d-Loran) Monitor"]
+      Tracking["Carrier Tracking and Dual-Antenna Heading"]
+      Trajectory["Kinematic Flight and Waypoint Planner"]
+      Fusion["BLUE Multi-Sensor Fusion and EW Resiliency"]
+      Layers["Cartographic Layers and GDOP Inspector"]
+    end
+
+    subgraph CanvasArea ["WebGL Vector Map and Interactive Radar Canvas"]
+      TxNodes["Station Transmitters: Master M and Secondaries X, Y, Z"]
+      RxNode["Dynamic Receiver Node and Keel Heading Vector"]
+      Baselines["Geodesic Baselines and Hazard Extensions"]
+      LOPs["Hyperbolic LOPs and Pseudorange Vectors"]
+      GDOPHeatmap["Geographically Static GDOP Heatmap Contours"]
+      HUDRibbon["Floating On-Map GDOP HUD Inspector Ribbon"]
+      LegendBox["Collapsible Station Symbols Legend"]
+    end
+  end
+
+  subgraph BottomDrawer ["Dockable Telemetry Console Drawer"]
+    LiveStream["Live NMEA-0183 Serial Telemetry Stream"]
+    Sparklines["Real-Time Error Covariance Variance Sparklines"]
+    Bridge["WebSocket Marine ECDIS Bridge Link: Port 10110"]
+  end
+
+  TopNav --> Workspace
+  Workspace --> BottomDrawer
 ```
 
 ### Global Header Controls
@@ -127,7 +153,9 @@ Located at `/loran-c`, this workspace implements classical hyperbolic **Time Dif
   * **Geodesic Baselines**: Dashed lines connecting Master to Secondaries along great-circle geodesics.
   * **Baseline Extensions**: Shaded hazard zones along the station-to-station axis where hyperbolic geometry degenerates into a single line, causing severe geometric dilution of precision.
   * **Hyperbolic Lines of Position (LOPs)**: Colored hyperbolas representing constant time difference contours:
-    $$\text{TD}_i = (T_{\text{arr}, i} + \text{ED}_i) - T_{\text{arr}, M} = \text{constant}$$
+
+$\text{TD}_i = (T_{\text{arr}, i} + \text{ED}_i) - T_{\text{arr}, M} = \text{constant}$
+
   * **Receiver Position Fix (Green Circle)**: Solved intersection of active LOPs with covariance error ellipse.
 
 ---
@@ -210,7 +238,9 @@ Accessed via the **Clocks Tab** in the left drawer.
   * **Clock Drift Rate Slider**: Adjusts linear fractional frequency drift ($\pm 1 \times 10^{-8}\text{ s/s}$).
 * **Stratum-1 UTC Time Transfer & TOC Engine**:
   * **Time of Coincidence (TOC) Card**: Computes exact mathematical epoch alignment:
-    $$\text{TOC} = \text{lcm}(\text{GRI}, 1\text{ s})$$
+
+$\text{TOC} = \text{lcm}(\text{GRI}, 1\text{ s})$
+
     For GRI 8390: $\text{TOC} = 839.0\text{ s}$ ($1000\text{ GRI periods}$).
   * **Next TOC Epoch Countdown**: Dynamic timer indicating seconds remaining until the next UTC 1 PPS pulse coincidence.
   * **1 PPS Carrier Pulse Offset**: Measures sub-microsecond carrier phase alignment ($< 50\text{ ns}$).
@@ -280,7 +310,9 @@ The `/eloran` route represents next-generation terrestrial PNT where every stati
 
 ### 4.1 All-in-View Map Canvas & Vessel Dynamics
 * **Time-of-Arrival (TOA) Mode**: Direct pseudorange multilateration without requiring a Master station:
-  $$\rho_i = c \cdot (T_{\text{arr}, i} - T_{\text{tx}, i}) = \|\mathbf{x} - \mathbf{s}_i\| + c \cdot \delta t_{\text{rx}} + \text{PF}_i + \text{SF}_i + \text{ASF}_i + \epsilon_i$$
+
+$\rho_i = c \cdot (T_{\text{arr}, i} - T_{\text{tx}, i}) = \|\mathbf{x} - \mathbf{s}_i\| + c \cdot \delta t_{\text{rx}} + \text{PF}_i + \text{SF}_i + \text{ASF}_i + \epsilon_i$
+
 * **Map Elements**:
   * **Pseudorange Ray Vectors**: Colored lines connecting the receiver to every tracked station, color-coded by signal-to-noise ratio.
   * **Vessel Icon (`EastSea-Patrol`)**: Draggable maritime vessel symbol showing real-time course vector and speed.
@@ -408,7 +440,9 @@ Accessed via the **Pulse Viewer** sub-tab.
     * `65 µs Peak Zoom`: Centers on the normalized peak envelope at $65\,\mu\text{s}$.
     * `300 µs Group Zoom`: Displays a complete emission pulse and decaying tail.
   * **Carrier Modulation Toggle (`RF 100 kHz [ON/OFF]`)**: Switch between RF modulated signal and baseband envelope curve:
-    $$i(t) = A \cdot \left(\frac{t}{\tau}\right)^2 \exp\left(-2 \frac{t - \tau}{\tau}\right) \sin(\omega_c t)$$
+
+$i(t) = A \cdot \left(\frac{t}{\tau}\right)^2 \exp\left(-2 \frac{t - \tau}{\tau}\right) \sin(\omega_c t)$
+
   * **Phase Code Group Selector (`Group A / Group B`)**: Toggles the 8-pulse/9-pulse phase inversion sequences ($0^\circ$ or $180^\circ$) to eliminate groundwave-skywave cross-correlation.
   * **Interactive Time Cursor**: Hovering or dragging across the canvas displays exact time $t$, normalized envelope amplitude $e(t)$, and instantaneous derivative $de/dt$.
   * **SZC Tracking Marker**: Golden crosshair locked to the 3rd positive zero crossing at $t = 30.0\,\mu\text{s}$ ($e(30) = 0.62534$).
@@ -476,20 +510,27 @@ Located at `/learn`, this page serves as an interactive mathematical textbook wi
 [![Learn Interactive Theory](assets/screenshots/19_learn_interactive_theory.png)](assets/screenshots/19_learn_interactive_theory.png)
 
 * **Core Mathematical Proofs Covered**:
+
   1. **Hyperbolic TDOA Coordinate Transformation**:
-     $$\|\mathbf{x} - \mathbf{s}_i\| - \|\mathbf{x} - \mathbf{s}_M\| = c \cdot (\text{TD}_i - \text{ED}_i)$$
+$\|\mathbf{x} - \mathbf{s}_i\| - \|\mathbf{x} - \mathbf{s}_M\| = c \cdot (\text{TD}_i - \text{ED}_i)$
+
   2. **Brunavs (1977) Seawater Secondary Factor (SF)**:
-     $$T_{\text{SF}}(d) = a_0 + a_1 d + a_2 d^2 + \dots$$
+$T_{\text{SF}}(d) = a_0 + a_1 d + a_2 d^2 + \dots$
+
   3. **Millington Mixed-Path Boundary Conditions**:
-     $$\Phi_{\text{Millington}} = \frac{1}{2} \left[ \sum_{i} \Delta\Phi_i^{\text{fwd}} + \sum_{i} \Delta\Phi_i^{\text{rev}} \right]$$
-  4. **Weighted Least Squares & Levenberg-Marquardt Normal Equations**:
-     $$\Delta\mathbf{x} = (H^T W H + \lambda I)^{-1} H^T W \mathbf{r}$$
+$\Phi_{\text{Millington}} = \frac{1}{2} \left[ \sum_{i} \Delta\Phi_i^{\text{fwd}} + \sum_{i} \Delta\Phi_i^{\text{rev}} \right]$
+
+  4. **Weighted Least Squares and Levenberg-Marquardt Normal Equations**:
+$\Delta\mathbf{x} = (H^T W H + \lambda I)^{-1} H^T W \mathbf{r}$
+
   5. **Geometric Dilution of Precision (GDOP) Transformation**:
-     $$H = \begin{bmatrix} \cos\theta_1 & \sin\theta_1 & 1 \\ \vdots & \vdots & \vdots \\ \cos\theta_n & \sin\theta_n & 1 \end{bmatrix}, \quad Q = (H^T H)^{-1}, \quad \text{GDOP} = \sqrt{\text{tr}(Q)}$$
+$H = \begin{bmatrix} \cos\theta_1 & \sin\theta_1 & 1 \\ \vdots & \vdots & \vdots \\ \cos\theta_n & \sin\theta_n & 1 \end{bmatrix}, \quad Q = (H^T H)^{-1}, \quad \text{GDOP} = \sqrt{\text{tr}(Q)}$
+
   6. **Stratum-1 Time of Coincidence (TOC)**:
-     $$\text{TOC} = \text{lcm}(\text{GRI}, 1\text{ s})$$
+$\text{TOC} = \text{lcm}(\text{GRI}, 1\text{ s})$
+
   7. **Dual-Antenna Carrier Phase Interferometry**:
-     $$\Delta\phi = \frac{2\pi d}{\lambda}\cos(\theta_{\text{bearing}} - \psi_{\text{heading}})$$
+$\Delta\phi = \frac{2\pi d}{\lambda}\cos(\theta_{\text{bearing}} - \psi_{\text{heading}})$
 * **Interactive Derivation Sliders**: Adjusting formula variables live recomputes numerical solutions directly within KaTeX rendered cards.
 
 ---
