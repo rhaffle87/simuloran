@@ -271,4 +271,32 @@ test.describe('SimuLoran - Visual User Guide & High-Resolution Layout Capture', 
     await page.waitForTimeout(2000);
     await page.screenshot({ path: 'docs/assets/screenshots/20_about_empirical_validation.png' });
   });
+  test('Capture 21 - Tracking Loop & Dual-Antenna Interferometric Heading', async ({ page }) => {
+    await page.goto('/eloran');
+    await loadChinaEastSea(page);
+
+    const trackingTab = page.locator('button[aria-label="Tracking"]');
+    if (await trackingTab.count() > 0) {
+      await trackingTab.click();
+      await page.waitForTimeout(1500);
+      await page.screenshot({ path: 'docs/assets/screenshots/21_tracking_interferometry.png' });
+    }
+  });
+
+  test('Capture 22 - Station Editor Cross-Rate Multilateration', async ({ page }) => {
+    await page.goto('/eloran');
+    await loadChinaEastSea(page);
+
+    const stationsTab = page.locator('button[aria-label="Stations"]');
+    if (await stationsTab.count() > 0) {
+      await stationsTab.click();
+      await page.waitForTimeout(1000);
+      await page.evaluate(() => {
+        const scrollable = document.querySelector('.overflow-y-auto');
+        if (scrollable) scrollable.scrollTop = scrollable.scrollHeight;
+      });
+      await page.waitForTimeout(1500);
+      await page.screenshot({ path: 'docs/assets/screenshots/22_cross_chain_multilateration.png' });
+    }
+  });
 });
