@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   XCircle,
   HelpCircle,
+  Compass,
 } from 'lucide-react';
 import { useSimulationStore } from '../../state/simulationStore.js';
 import {
@@ -17,6 +18,8 @@ import {
 } from '../../lib/trackingLoop.js';
 import TrackingChart from '../charts/TrackingChart.jsx';
 import Slider from '../ui/Slider.jsx';
+import { computeInterferometricHeading, computePhaseDifference, CARRIER_WAVELENGTH_M } from '../../lib/interferometry.js';
+import { initialBearing } from '../../lib/geodesy.js';
 
 export default function TrackingPanel() {
   const {
@@ -26,7 +29,13 @@ export default function TrackingPanel() {
     stepTrackingLoop: stepLoop,
     injectCycleSlip: injectSlip,
     reacquireTrackingLoop: reacquireLoop,
+    masters,
+    slaves,
+    receivers,
+    selectedReceiver,
   } = useSimulationStore();
+
+  const [baselineMeters, setBaselineMeters] = useState(50);
 
   const [isRunning, setIsRunning] = useState(true);
   const [localSnrDb, setLocalSnrDb] = useState(settings?.snrDb ?? 18);
@@ -51,7 +60,7 @@ export default function TrackingPanel() {
       stepLoop(localSnrDb);
     }, 150);
 
-    return () => {
+  return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [isRunning, localSnrDb, stepLoop]);
@@ -81,6 +90,27 @@ export default function TrackingPanel() {
 
   const sigmaUs = computeTrackingSigmaUs(localSnrDb, settings?.pulsesAveraged ?? 10);
   const sigmaMeters = sigmaUs * 299.792458;
+
+    // Dual-Antenna Interferometric Heading calculation
+  const rx = receivers?.find((r) => r.id === selectedReceiver) || receivers?.[0] || { lat: 28.5, lng: 122.5, heading: 45 };
+  const m = masters?.[0] || { lat: 31.069, lng: 118.886, label: 'Master' };
+  const s = slaves?.[0] || { lat: 23.705, lng: 116.924, label: 'Secondary' };
+
+  const bearing1 = initialBearing(rx, m);
+  const bearing2 = initialBearing(rx, s);
+  const vesselHeading = rx.heading ?? 45;
+
+  const phaseDiff1Rad = computePhaseDifference(baselineMeters, bearing1, vesselHeading);
+  const phaseDiff2Rad = computePhaseDifference(baselineMeters, bearing2, vesselHeading);
+
+  const headingSolution = computeInterferometricHeading({
+    baselineMeters,
+    phaseDiff1Rad,
+    bearing1Deg: bearing1,
+    phaseDiff2Rad,
+    bearing2Deg: bearing2,
+    phaseNoiseRadRms: Math.max(0.01, 0.25 / Math.max(0.1, Math.pow(10, localSnrDb / 20))),
+  });
 
   return (
     <div className="space-y-4 font-mono text-xs">
@@ -317,6 +347,80 @@ export default function TrackingPanel() {
             unit=" dB"
             tooltip="Overrides receiver signal-to-noise ratio to test lock acquisition and cycle slip thresholds"
           />
+        </div>
+      </div>
+
+      {/* Dual-Antenna Carrier Phase Interferometry (Heading Determination) */}
+      <div
+        data-testid="dual-antenna-interferometry-card"
+        className="p-3 rounded-lg space-y-3 font-mono text-xs"
+        style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px]" style={{ color: 'var(--accent-eloran)' }}>
+            <Compass size={13} aria-hidden="true" />
+            <span>Dual-Antenna Interferometric Heading</span>
+          </div>
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded font-bold"
+            style={headingSolution.baselineValidation?.valid
+              ? { background: 'var(--status-ok-subtle)', color: 'var(--status-ok)', border: '1px solid var(--status-ok-border)' }
+              : { background: 'var(--status-warn-subtle)', color: 'var(--status-warn)', border: '1px solid var(--status-warn-border)' }}
+          >
+            {headingSolution.baselineValidation?.valid ? 'AMBIGUITY-FREE (<1499m)' : 'AMBIGUOUS'}
+          </span>
+        </div>
+
+        {/* Heading Solution Comparison */}
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="p-2 rounded bg-[var(--bg-canvas)] border border-[var(--border-subtle)]">
+            <div className="text-[10px] text-[var(--text-dim)] uppercase">True Heading (Keel)</div>
+            <div className="font-bold text-[var(--text-primary)] mt-0.5">{vesselHeading.toFixed(1)}°</div>
+            <div className="text-[9px] text-[var(--text-dim)]">Ground-Track Bearing</div>
+          </div>
+          <div className="p-2 rounded bg-[var(--bg-canvas)] border border-[var(--border-subtle)]">
+            <div className="text-[10px] text-[var(--text-dim)] uppercase">Interferometric Heading</div>
+            <div className="font-bold text-[var(--accent-eloran)] mt-0.5">
+              {headingSolution.resolvedHeadingDeg !== null ? `${headingSolution.resolvedHeadingDeg.toFixed(1)}°` : '---'}
+            </div>
+            <div className="text-[9px] text-[var(--text-dim)]">
+              Error: ±{headingSolution.headingUncertainty1SigmaDeg.toFixed(2)}° (1σ)
+            </div>
+          </div>
+        </div>
+
+        {/* Phase Difference Readings */}
+        <div className="p-2.5 rounded bg-[var(--bg-canvas)] border border-[var(--border-subtle)] space-y-1.5 text-[11px]">
+          <div className="flex justify-between items-center">
+            <span className="text-[var(--text-dim)]">Δφ₁ ({m.label || 'Master'}):</span>
+            <span className="font-mono text-[var(--text-primary)]">{(phaseDiff1Rad * 180 / Math.PI).toFixed(1)}°</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[var(--text-dim)]">Δφ₂ ({s.label || 'Secondary'}):</span>
+            <span className="font-mono text-[var(--text-primary)]">{(phaseDiff2Rad * 180 / Math.PI).toFixed(1)}°</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[var(--text-dim)]">Carrier Wavelength (λ):</span>
+            <span className="font-mono text-[var(--text-dim)]">{CARRIER_WAVELENGTH_M.toFixed(1)} m (100 kHz)</span>
+          </div>
+        </div>
+
+        {/* Antenna Baseline Slider */}
+        <div className="pt-1">
+          <Slider
+            label="Antenna Baseline (Keel Spacing)"
+            value={baselineMeters}
+            onChange={setBaselineMeters}
+            min={10}
+            max={300}
+            step={5}
+            unit=" m"
+            tooltip="Physical separation distance between bow and stern H-field antennas along the vessel keel"
+          />
+        </div>
+
+        <div className="text-[10px] text-[var(--text-dim)] leading-relaxed">
+          Dual eLoran antennas spaced along the vessel keel measure the 100 kHz carrier phase difference from two distinct transmitter bearings. Because baseline length &lt; λ/2 (1498.9 m), carrier phase ambiguity is completely eliminated without integer-cycle ambiguity search, providing true vessel heading independent of magnetic declination or gyro drift.
         </div>
       </div>
 

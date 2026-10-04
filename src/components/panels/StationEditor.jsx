@@ -1,8 +1,10 @@
 import React, { useRef, useState } from 'react';
-import { Upload, Download, Plus, Trash2, FileCode, RotateCcw, Save, FolderOpen } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, FileCode, RotateCcw, Save, FolderOpen, Network, CheckCircle2 } from 'lucide-react';
 import { useSimulationStore } from '../../state/simulationStore.js';
 import { PRESET_SCENARIOS } from '../../state/presets.js';
 import { parseStationsCsv, exportStationsCsv, exportScenarioGeoJson } from '../../lib/stations.js';
+import { solveCrossChainFix, evaluateCrossChainDopGain } from '../../lib/crossChain.js';
+import { haversineDistance } from '../../lib/geodesy.js';
 import Modal from '../ui/Modal.jsx';
 import { InfoTooltip } from '../ui/Tooltip.jsx';
 
@@ -12,6 +14,24 @@ const ROLE_COLOR_VAR = {
   receiver: '--status-ok',
 };
 const ROLE_LABEL = { master: 'MST', slave: 'SEC', receiver: 'RCV' };
+
+const CANDIDATE_CROSS_STATIONS = [
+  // East Asia / China
+  { id: '7430M', label: 'Helong (7430M)', lat: 42.533, lng: 129.000, chainId: 'GRI 7430' },
+  { id: '7430X', label: 'Dalian (7430X)', lat: 38.950, lng: 121.733, chainId: 'GRI 7430' },
+  { id: '9930M', label: 'Pohang (9930M)', lat: 36.186, lng: 129.352, chainId: 'GRI 9930' },
+  { id: '9930W', label: 'Kwangju (9930W)', lat: 35.043, lng: 126.705, chainId: 'GRI 9930' },
+  // Europe / North Sea
+  { id: '6731M', label: 'Lessay (6731M)', lat: 49.150, lng: -1.503, chainId: 'GRI 6731' },
+  { id: '7499M', label: 'Sylt (7499M)', lat: 54.808, lng: 8.293, chainId: 'GRI 7499' },
+  { id: '7499Y', label: 'Værlandet (7499Y)', lat: 61.297, lng: 4.696, chainId: 'GRI 7499' },
+  { id: '9007M', label: 'Ejde (9007M)', lat: 62.298, lng: -7.070, chainId: 'GRI 9007' },
+  // North America
+  { id: '9960M', label: 'Seneca (9960M)', lat: 42.714, lng: -76.826, chainId: 'GRI 9960' },
+  { id: '8970M', label: 'Dana (8970M)', lat: 39.854, lng: -87.486, chainId: 'GRI 8970' },
+  { id: '7980M', label: 'Grangeville (7980M)', lat: 30.725, lng: -90.830, chainId: 'GRI 7980' },
+];
+
 
 export default function StationEditor({ isELoran = false }) {
   const fileInputRef = useRef(null);
@@ -27,6 +47,14 @@ export default function StationEditor({ isELoran = false }) {
     loadPreset, addStation, removeStation, setStations, resetAll, evaluateReceivers,
     stationStatus = {}, setStationStatus,
   } = useSimulationStore();
+
+  const [selectedCrossIds, setSelectedCrossIds] = useState(['7430X', '9930M']);
+
+  const toggleCrossStation = (id) => {
+    setSelectedCrossIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
 
   const [hasSavedChain, setHasSavedChain] = useState(() => {
     try { return Boolean(localStorage.getItem('simuloran:custom-chain')); } catch { return false; }
@@ -176,6 +204,37 @@ export default function StationEditor({ isELoran = false }) {
     color: 'var(--text-primary)',
     outline: 'none',
   };
+
+  // Cross-Chain Multi-GRI Calculations
+  const rx = receivers?.[0] || { lat: 28.5, lng: 122.5 };
+  const primaryChainStations = allStations.filter(s => s.role === 'master' || s.role === 'slave');
+
+  const nearbyCandidates = CANDIDATE_CROSS_STATIONS.filter(cand => {
+    const d = haversineDistance(rx, cand) / 1000;
+    return d < 3500;
+  });
+
+  const activeCrossStations = nearbyCandidates.filter(c => selectedCrossIds.includes(c.id));
+  const combinedConstellation = [...primaryChainStations, ...activeCrossStations];
+
+  const crossDop = evaluateCrossChainDopGain(
+    primaryChainStations.length >= 3 ? primaryChainStations : primaryChainStations.concat(CANDIDATE_CROSS_STATIONS.slice(0, 3)),
+    combinedConstellation.length >= 3 ? combinedConstellation : primaryChainStations.concat(CANDIDATE_CROSS_STATIONS.slice(0, 4)),
+    rx
+  );
+
+  const crossObservations = combinedConstellation.map(st => {
+    const dist = haversineDistance(rx, st);
+    const chainBias = st.chainId?.includes('7430') ? 2200 : st.chainId?.includes('9930') ? 1600 : 1200;
+    return {
+      station: st,
+      chainId: st.chainId || 'PRIMARY',
+      pseudorangeMeters: dist + chainBias,
+      sigma: 20,
+    };
+  });
+
+  const crossFixResult = crossObservations.length >= 3 ? solveCrossChainFix(crossObservations, rx) : null;
 
   return (
     <div className="space-y-4">
@@ -453,6 +512,102 @@ export default function StationEditor({ isELoran = false }) {
             </p>
           )}
         </div>
+      </div>
+
+      {/* All-in-View Multi-GRI Cross-Rate Multilateration */}
+      <div
+        data-testid="cross-chain-multilateration-card"
+        className="p-3 rounded-lg space-y-3 font-mono text-xs"
+        style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px]" style={{ color: 'var(--accent-eloran)' }}>
+            <Network size={13} aria-hidden="true" />
+            <span>All-in-View Cross-Rate Solver</span>
+          </div>
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded font-bold flex items-center gap-1"
+            style={crossDop.isImproved
+              ? { background: 'var(--status-ok-subtle)', color: 'var(--status-ok)', border: '1px solid var(--status-ok-border)' }
+              : { background: 'var(--bg-muted)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+          >
+            <CheckCircle2 size={11} />
+            <span>{crossDop.isImproved ? `+${crossDop.dopImprovementPct.toFixed(1)}% DOP GAIN` : 'STANDALONE'}</span>
+          </span>
+        </div>
+
+        <div className="text-[10px] text-[var(--text-secondary)] leading-relaxed">
+          Combines primary chain transmitters with synchronized adjacent GRI chains to eliminate single-chain geometric dilution blind spots.
+        </div>
+
+        {/* Cross-Rate DOP Comparison */}
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="p-2 rounded bg-[var(--bg-canvas)] border border-[var(--border-subtle)]">
+            <div className="text-[10px] text-[var(--text-dim)] uppercase">Single-Chain HDOP</div>
+            <div className="font-bold text-[var(--text-primary)] mt-0.5">{crossDop.singleChainHdop.toFixed(2)}</div>
+            <div className="text-[9px] text-[var(--text-dim)]">{crossDop.stationsSingle} Transmitters</div>
+          </div>
+          <div className="p-2 rounded bg-[var(--bg-canvas)] border border-[var(--border-subtle)]">
+            <div className="text-[10px] text-[var(--text-dim)] uppercase">Cross-Chain HDOP</div>
+            <div className="font-bold text-[var(--status-ok)] mt-0.5">{crossDop.crossChainHdop.toFixed(2)}</div>
+            <div className="text-[9px] text-[var(--text-dim)]">{crossDop.stationsCross} Transmitters (All-in-View)</div>
+          </div>
+        </div>
+
+        {/* Cross-Chain Stations Selection */}
+        <div className="space-y-1.5 pt-1">
+          <span className="text-[10px] font-semibold text-[var(--text-dim)] uppercase">Adjacent Transmitters in View:</span>
+          <div className="space-y-1">
+            {nearbyCandidates.slice(0, 4).map((cand) => {
+              const active = selectedCrossIds.includes(cand.id);
+              return (
+                <div
+                  key={cand.id}
+                  onClick={() => toggleCrossStation(cand.id)}
+                  className="flex items-center justify-between p-2 rounded cursor-pointer transition select-none"
+                  style={active
+                    ? { background: 'var(--accent-eloran-subtle)', border: '1px solid var(--accent-eloran-border)' }
+                    : { background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)' }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ background: active ? 'var(--accent-eloran)' : 'var(--text-muted)' }} />
+                    <span className="font-semibold" style={{ color: active ? 'var(--accent-eloran)' : 'var(--text-primary)' }}>
+                      {cand.label}
+                    </span>
+                    <span className="text-[10px] text-[var(--text-dim)]">({cand.chainId})</span>
+                  </div>
+                  <span className="text-[10px] text-[var(--text-dim)] font-mono">
+                    {cand.lat.toFixed(2)}°N, {cand.lng.toFixed(2)}°E
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Cross-Rate Fix Results */}
+        {crossFixResult && (
+          <div className="p-2.5 rounded bg-[var(--bg-canvas)] border border-[var(--border-subtle)] space-y-1 text-[11px]">
+            <div className="flex justify-between items-center">
+              <span className="text-[var(--text-dim)]">Multi-GRI Position Fix:</span>
+              <span className="font-bold text-[var(--text-primary)] font-mono">
+                {crossFixResult.lat.toFixed(4)}°N, {crossFixResult.lng.toFixed(4)}°E
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-[var(--text-dim)]">Resolved Clock Bias (b_rx):</span>
+              <span className="font-mono text-[var(--accent-eloran)]">
+                {crossFixResult.clockBiasMeters.toFixed(1)} m ({(crossFixResult.clockBiasSec * 1e6).toFixed(2)} µs)
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-[var(--text-dim)]">Convergence Status:</span>
+              <span className="font-mono text-[var(--status-ok)]">
+                {crossFixResult.iterations} iterations ({crossFixResult.converged ? 'CONVERGED' : 'FAILED'})
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add Station Modal */}
