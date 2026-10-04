@@ -26,6 +26,44 @@ Global Navigation Satellite Systems (GNSS: GPS, Galileo, BeiDou, GLONASS) transm
 
 SimuLoran provides a high-density, professional dark-mode maritime radio-navigation workbench. Below is a visual tour of the primary operational views shown at full width with the **China East Sea Chain (GRI 8390)** operational preset. For complete step-by-step operating procedures, parameter definitions, and workflows, consult the **[Visual User Guide](docs/VISUAL_USER_GUIDE.md)**.
 
+```mermaid
+flowchart TD
+    subgraph UI ["SIMULORAN Cockpit Interface Layout"]
+        direction TD
+
+        NAV["Top Navbar: Route Navigation • Active Scenario Badge • Play/Pause Simulation • Theme Toggle • GitHub"]
+
+        subgraph WORKSPACE ["Operational Center Stage"]
+            direction LR
+
+            subgraph CANVAS ["Interactive Vector Map / Waveform Workbench Canvas"]
+                direction TB
+                C1["Transmitter Nodes (Master / Secondary)"]
+                C2["Hyperbolic Lines of Position (LOPs) / Range Circles"]
+                C3["Real-time GDOP / HDOP Heatmap Contours & Inspector"]
+                C4["Receiver Fix & BLUE 95% Covariance Error Ellipse"]
+            end
+
+            subgraph SIDEBAR ["Sidebar Subsystem Panels (Collapsible / Resizable)"]
+                direction TB
+                S1["Station Network Editor"]
+                S2["Clocks & Allan Deviation"]
+                S3["Additional Secondary Factor (ASF & Millington)"]
+                S4["d-Loran Differential Monitor"]
+                S5["Receiver Tracking Loops (PLL / DLL)"]
+                S6["Trajectory & Flight Plan"]
+                S7["Multi-Sensor BLUE Fusion"]
+                S8["Display & GDOP Inspector Toggles"]
+            end
+        end
+
+        CONSOLE["Collapsible Live Telemetry Console: NMEA Sentences • Residuals • Serial Terminal • Log Export"]
+
+        NAV --> WORKSPACE
+        WORKSPACE --> CONSOLE
+    end
+```
+
 ### 1. eLoran All-in-View Pseudorange Multilateration & Radial Geometry
 
 [![eLoran All-in-View Multilateration Map](docs/assets/screenshots/05_eloran_all_in_view_map.png)](docs/VISUAL_USER_GUIDE.md#4-modernized-eloran-all-in-view-positioning)

@@ -28,24 +28,42 @@
 
 SIMULORAN is organized as a high-density, dark-mode cockpit designed for radionavigation engineers, researchers, and students. The interface layout consists of four persistent components:
 
-```
-+----------------------------------------------------------------------------------------------------+
-| Top Navbar: Route Navigation | Active Scenario Badge | Play/Pause Simulation | Theme Toggle | GitHub|
-+------------------------------------------------------------------+---------------------------------+
-|                                                                  |                                 |
-|                                                                  | Sidebar Subsystem Panels:       |
-|                                                                  | - Station Network Editor        |
-|                                                                  | - Clocks & Allan Deviation      |
-| Interactive Vector Map / Waveform Workbench Canvas               | - Additional Secondary Factor   |
-| - Transmitter Nodes (Master / Secondary)                         | - d-Loran Differential Monitor  |
-| - Hyperbolic Lines of Position (LOPs) / Range Circles            | - Receiver Tracking Loops       |
-| - Real-time GDOP / HDOP Heatmap Contours                         | - Trajectory & Flight Plan      |
-| - Receiver Fix & Error Ellipse                                   | - Multi-Sensor BLUE Fusion      |
-|                                                                  | - Display & Layer Toggles       |
-|                                                                  |                                 |
-+------------------------------------------------------------------+---------------------------------+
-| Collapsible Live Telemetry Console: NMEA Sentences | Residuals | Serial Terminal | Log Export      |
-+----------------------------------------------------------------------------------------------------+
+```mermaid
+flowchart TD
+    subgraph UI ["SIMULORAN Cockpit Interface Layout"]
+        direction TD
+
+        NAV["Top Navbar: Route Navigation • Active Scenario Badge • Play/Pause Simulation • Theme Toggle • GitHub"]
+
+        subgraph WORKSPACE ["Operational Center Stage"]
+            direction LR
+
+            subgraph CANVAS ["Interactive Vector Map / Waveform Workbench Canvas"]
+                direction TB
+                C1["Transmitter Nodes (Master / Secondary)"]
+                C2["Hyperbolic Lines of Position (LOPs) / Range Circles"]
+                C3["Real-time GDOP / HDOP Heatmap Contours & Inspector"]
+                C4["Receiver Fix & BLUE 95% Covariance Error Ellipse"]
+            end
+
+            subgraph SIDEBAR ["Sidebar Subsystem Panels (Collapsible / Resizable)"]
+                direction TB
+                S1["Station Network Editor"]
+                S2["Clocks & Allan Deviation"]
+                S3["Additional Secondary Factor (ASF & Millington)"]
+                S4["d-Loran Differential Monitor"]
+                S5["Receiver Tracking Loops (PLL / DLL)"]
+                S6["Trajectory & Flight Plan"]
+                S7["Multi-Sensor BLUE Fusion"]
+                S8["Display & GDOP Inspector Toggles"]
+            end
+        end
+
+        CONSOLE["Collapsible Live Telemetry Console: NMEA Sentences • Residuals • Serial Terminal • Log Export"]
+
+        NAV --> WORKSPACE
+        WORKSPACE --> CONSOLE
+    end
 ```
 
 - **Top Navbar**: Instant routing between `/` (Home), `/loran-c` (Hyperbolic Mode), `/eloran` (Pseudorange Mode), `/waveforms` (RF Signal Lab), `/learn` (Interactive Theory), and `/about` (Field Trials & Provenance).
