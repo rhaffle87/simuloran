@@ -524,6 +524,10 @@ export default function StationEditor({ isELoran = false }) {
           <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px]" style={{ color: 'var(--accent-eloran)' }}>
             <Network size={13} aria-hidden="true" />
             <span>All-in-View Cross-Rate Solver</span>
+            <InfoTooltip
+              content="Combines primary chain transmitters with synchronized adjacent GRI chains to eliminate single-chain geometric dilution blind spots."
+              align="left"
+            />
           </div>
           <span
             className="text-[10px] px-1.5 py-0.5 rounded font-bold flex items-center gap-1"
@@ -534,10 +538,6 @@ export default function StationEditor({ isELoran = false }) {
             <CheckCircle2 size={11} />
             <span>{crossDop.isImproved ? `+${crossDop.dopImprovementPct.toFixed(1)}% DOP GAIN` : 'STANDALONE'}</span>
           </span>
-        </div>
-
-        <div className="text-[10px] text-[var(--text-secondary)] leading-relaxed">
-          Combines primary chain transmitters with synchronized adjacent GRI chains to eliminate single-chain geometric dilution blind spots.
         </div>
 
         {/* Cross-Rate DOP Comparison */}

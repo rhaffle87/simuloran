@@ -1,6 +1,7 @@
-﻿import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   computeNmeaChecksum,
+  validateChecksum,
   decimalDegreesToNmea,
   generateRmc,
   generateGga,
@@ -17,6 +18,16 @@ describe('NMEA 0183 Telemetry Engine', () => {
     expect(csum).toBeTypeOf('string');
     expect(csum.length).toBe(2);
     expect(csum).toMatch(/^[0-9A-F]{2}$/);
+  });
+
+  it('validates sentence checksum integrity correctly', () => {
+    const valid = '$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A\r\n';
+    expect(validateChecksum(valid)).toBe(true);
+
+    const invalid = '$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*00\r\n';
+    expect(validateChecksum(invalid)).toBe(false);
+
+    expect(validateChecksum('not-a-sentence')).toBe(false);
   });
 
   it('converts decimal coordinates to ddmm.mmmm format for latitude and longitude', () => {

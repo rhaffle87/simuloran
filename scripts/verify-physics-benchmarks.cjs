@@ -15,6 +15,14 @@ const path = require('path');
   const grwave = await importLib('grwave.js');
   const ekf = await importLib('ekf.js');
   const raim = await importLib('integrityRaim.js');
+  const cri = await importLib('crossRateInterference.js');
+  const beamforming = await importLib('adaptiveBeamforming.js');
+  const rtk = await importLib('rtkLoran.js');
+  const spaceWeather = await importLib('spaceWeather.js');
+  const ducting = await importLib('troposphericDucting.js');
+  const masterless = await importLib('masterlessToe.js');
+  const ukfMod = await importLib('ukfInsFusion.js');
+  const rsMod = await importLib('reedSolomonGf128.js');
 
   const benchmarkTable = [];
   const sweepTable = [];
@@ -125,8 +133,71 @@ const path = require('path');
   record('RAIM Cycle Slip Detection (+3000m)', 1, raimFault.faultDetected ? 1 : 0, 0, '', 'RTCA DO-229D Fault Detection');
   record('RAIM Fault Isolation to Station X', 1, raimFault.isolatedStation === 'X' ? 1 : 0, 0, '', 'RTCA DO-229D Fault Exclusion');
 
-  // 5. Parameter Sensitivity Sweeps
-  console.log('\n--- 5. Parameter Sensitivity Sweeps ---');
+  // 5. Advanced Anti-Jamming, CRI & Carrier Phase Physics
+  console.log('\n--- 5. Advanced Anti-Jamming, CRI & Carrier Phase Physics ---');
+  const coincidence = cri.computeCriCoincidencePeriod(99300, 74300);
+  record('Cross-Rate Interference Coincidence (GRI 9930 & 7430)', 73.7799, coincidence.coincidenceSec, 0.001, 's', 'Peterson (2006) / Offermans');
+
+  const crpaArr = beamforming.createCircularArray(25.0);
+  const sSig = beamforming.computeSteeringVector(crpaArr, 45.0);
+  const sJam = beamforming.computeSteeringVector(crpaArr, 180.0);
+  const nCrpa = crpaArr.length;
+  const pJam = 1000.0;
+  const Rxx = Array.from({ length: nCrpa }, (_, i) =>
+    Array.from({ length: nCrpa }, (_, j) => {
+      const noise = i === j ? 1.0 : 0.0;
+      const jamRe = sJam[i].re * sJam[j].re + sJam[i].im * sJam[j].im;
+      const jamIm = sJam[i].im * sJam[j].re - sJam[i].re * sJam[j].im;
+      return { re: noise + pJam * jamRe, im: pJam * jamIm };
+    })
+  );
+  const weights = beamforming.computeMvdrWeights(Rxx, sSig);
+  const jamGain = beamforming.computeArrayGain(weights, crpaArr, 180.0);
+  record('CRPA MVDR Jammer Spatial Null Depth', 1.0, jamGain.gainDb < -20.0 ? 1.0 : 0.0, 0, '', 'Capon (1969) / USCG EW');
+
+  const sd1 = rtk.computeSingleDifferencePhase(50000, 49000, 0, 0);
+  const expectedCycles = 1000.0 / rtk.LF_WAVELENGTH_METERS;
+  record('RTK Carrier Phase Single-Difference Cycles', expectedCycles, sd1, 1e-4, 'cycles', 'Williams & Hargreaves (2010)');
+
+  // Space Weather
+  const swDep = spaceWeather.computeStormHeightDepressionMeters(8.5, 60.0);
+  record('Severe Storm Ionospheric Height Depression (Kp=8.5)', 1.0, swDep > 15000.0 ? 1.0 : 0.0, 0, '', 'Davies (1990) / ITU-R P.684');
+
+  // Tropospheric Refraction
+  const kFactor = ducting.computeEffectiveEarthRadiusFactor(-39.24);
+  record('Tropospheric Effective Earth Radius Factor (k-factor)', 1.3333, kFactor, 0.01, '', 'ITU-R P.453 / NBS 92');
+
+  // Masterless Multi-Chain Fix
+  const mStations = [
+    { id: 'S1', lat: 38.0, lng: 126.0, isMaster: false },
+    { id: 'S2', lat: 37.0, lng: 127.5, isMaster: false },
+    { id: 'S3', lat: 36.8, lng: 126.2, isMaster: false },
+    { id: 'S4', lat: 37.9, lng: 127.6, isMaster: false }
+  ];
+  const mObs = mStations.map(st => ({
+    station: st,
+    pseudorangeMeters: geodesy.haversineDistance(37.5, 126.8, st.lat, st.lng) + 300.0,
+    sigmaMeters: 5.0
+  }));
+  const mFix = masterless.solveMasterlessFix(mObs, { lat: 37.0, lng: 126.5 });
+  record('Masterless All-In-View Multi-GRI Fix Convergence', 1.0, (mFix.converged && !mFix.hasMasterInView) ? 1.0 : 0.0, 0, '', 'RTCM 10410.1 / Uragan');
+
+  // UKF 15-State Filter
+  const ukfInstance = new ukfMod.UkfInsFusion({ position: [100, 200, 0] });
+  const sigmas = ukfInstance.generateSigmaPoints();
+  record('15-State UKF Sigma Point Dimension (2L+1)', 31, sigmas.length, 0, 'points', 'Julier & Uhlmann (2004)');
+
+  // Reed-Solomon RS(30,10) over GF(128)
+  const testMsg = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const encodedRs = rsMod.encodeRs3010(testMsg);
+  const corruptedRs = [...encodedRs];
+  corruptedRs[2] ^= 0x3F;
+  corruptedRs[7] ^= 0x1A;
+  const decodedRs = rsMod.decodeRs3010(corruptedRs);
+  record('ILA eLoran Reed-Solomon RS(30,10) Error Recovery', 1.0, decodedRs.success && decodedRs.errorsCorrected === 2 ? 1.0 : 0.0, 0, '', 'ILA eLoran Spec / RTCM');
+
+  // 6. Parameter Sensitivity Sweeps
+  console.log('\n--- 6. Parameter Sensitivity Sweeps ---');
   // Conductivity sweep
   const conds = [0.0001, 0.001, 0.005, 0.02, 0.1, 1.0, 5.0];
   for (const sig of conds) {

@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { AlertTriangle, X } from 'lucide-react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useSimulationStore } from '../../state/simulationStore.js';
@@ -548,24 +549,109 @@ export default function MapView({ onMapClick, isELoran = false }) {
         el.addEventListener('click', (e) => {
           e.stopPropagation();
           if (mapMode === 'pan' && isValidLngLat(station.lng, station.lat)) {
-            const popupContent = station.isDesign ? `
-              <div class="space-y-1">
-                <div style="font-family:monospace;font-weight:700;font-size:12px;color:var(--accent-loran-c)">PROPOSED ${station.label} (${station.type.toUpperCase()})</div>
-                <div style="font-size:11px;color:var(--text-secondary)">Lat: ${station.lat.toFixed(5)}°</div>
-                <div style="font-size:11px;color:var(--text-secondary)">Lng: ${station.lng.toFixed(5)}°</div>
-                ${station.codingDelayUs ? `<div style="font-size:11px;color:var(--text-muted)">Coding Delay: ${station.codingDelayUs} µs</div>` : ''}
-                <div style="font-size:10px;color:var(--accent-loran-c);margin-top:4px;">Drag marker on map to reposition</div>
-              </div>
-            ` : `
-              <div class="space-y-1">
-                <div style="font-family:monospace;font-weight:700;font-size:12px;color:var(--accent-eloran)">${station.label} (${station.type.toUpperCase()})</div>
-                <div style="font-size:11px;color:var(--text-secondary)">Lat: ${station.lat.toFixed(5)}°</div>
-                <div style="font-size:11px;color:var(--text-secondary)">Lng: ${station.lng.toFixed(5)}°</div>
-                ${station.txDbm ? `<div style="font-size:11px;color:var(--text-muted)">Power: ${station.txDbm} dBm</div>` : ''}
-                ${station.clock?.type ? `<div style="font-size:11px;color:var(--text-muted)">Clock: ${station.clock.type}</div>` : ''}
+            let roleBadge = '';
+            let rolePillClass = 'pill-eloran';
+            if (station.isDesign) {
+              roleBadge = `PROPOSED ${station.type.toUpperCase()}`;
+              rolePillClass = 'border-[var(--accent-loran-c)]/40 text-[var(--accent-loran-c)] bg-[var(--accent-loran-c)]/10';
+            } else if (station.type === 'master') {
+              roleBadge = 'MASTER (M)';
+              rolePillClass = 'pill-eloran';
+            } else if (station.type === 'slave') {
+              roleBadge = 'SECONDARY (S)';
+              rolePillClass = 'pill-loran-c';
+            } else {
+              roleBadge = 'RECEIVER (RX)';
+              rolePillClass = 'pill-ok';
+            }
+
+            // Optional telemetry query for receivers
+            let rxMetaHtml = '';
+            if (station.type === 'receiver') {
+              const liveFix = useSimulationStore.getState()?.receiverFixes?.[station.label];
+              const gdopVal = liveFix?.gdop ? liveFix.gdop.toFixed(2) : (station.gdop ? Number(station.gdop).toFixed(2) : null);
+              const errVal = liveFix?.errorMeters != null ? liveFix.errorMeters.toFixed(1) : null;
+              const fixStatus = liveFix?.noSolution ? 'NO FIX' : (liveFix?.converged ? '3D FIX' : 'ACQUIRING');
+              const fixColor = liveFix?.noSolution ? 'var(--status-err)' : (liveFix?.converged ? 'var(--status-ok)' : 'var(--status-warn)');
+
+              rxMetaHtml = `
+                <div class="pt-2 mt-2 border-t border-[var(--border-subtle)] space-y-1.5 text-[11px] font-mono">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[var(--text-dim)] uppercase text-[10px]">Fix Status</span>
+                    <span class="font-semibold" style="color: ${fixColor}">${fixStatus}</span>
+                  </div>
+                  ${errVal ? `
+                    <div class="flex items-center justify-between">
+                      <span class="text-[var(--text-dim)] uppercase text-[10px]">Position Delta</span>
+                      <span class="text-[var(--text-primary)] font-semibold">${errVal} m</span>
+                    </div>
+                  ` : ''}
+                  ${gdopVal ? `
+                    <div class="flex items-center justify-between">
+                      <span class="text-[var(--text-dim)] uppercase text-[10px]">Geometry GDOP</span>
+                      <span class="text-[var(--text-primary)] font-semibold">${gdopVal}</span>
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+            }
+
+            // Transmitter details
+            let txMetaHtml = '';
+            if (station.type !== 'receiver' && (station.txDbm || station.clock?.type || station.codingDelayUs)) {
+              txMetaHtml = `
+                <div class="pt-2 mt-2 border-t border-[var(--border-subtle)] space-y-1.5 text-[11px] font-mono">
+                  ${station.txDbm ? `
+                    <div class="flex items-center justify-between">
+                      <span class="text-[var(--text-dim)] uppercase text-[10px]">Radiated Power</span>
+                      <span class="text-[var(--text-primary)] font-semibold">${station.txDbm} dBm</span>
+                    </div>
+                  ` : ''}
+                  ${station.clock?.type ? `
+                    <div class="flex items-center justify-between">
+                      <span class="text-[var(--text-dim)] uppercase text-[10px]">Oscillator</span>
+                      <span class="text-[var(--text-primary)] font-semibold">${station.clock.type}</span>
+                    </div>
+                  ` : ''}
+                  ${station.codingDelayUs ? `
+                    <div class="flex items-center justify-between">
+                      <span class="text-[var(--text-dim)] uppercase text-[10px]">Emission Delay</span>
+                      <span class="text-[var(--text-primary)] font-semibold">${station.codingDelayUs} µs</span>
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+            }
+
+            const popupContent = `
+              <div class="w-[240px] text-[var(--text-primary)] font-sans antialiased select-none">
+                <div class="flex items-center justify-between px-3 py-2.5 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] pr-9">
+                  <span class="font-mono font-bold text-xs tracking-tight text-[var(--text-primary)] truncate" title="${station.label}">${station.label}</span>
+                  <span class="pill text-[9px] font-mono uppercase tracking-wider ${rolePillClass}">${roleBadge}</span>
+                </div>
+                <div class="p-3 bg-[var(--bg-canvas)]">
+                  <div class="grid grid-cols-2 gap-2 p-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] font-mono text-[11px]">
+                    <div>
+                      <div class="text-[9px] uppercase tracking-wider text-[var(--text-dim)]">Latitude</div>
+                      <div class="font-semibold text-[var(--text-primary)] mt-0.5">${station.lat.toFixed(5)}°</div>
+                    </div>
+                    <div>
+                      <div class="text-[9px] uppercase tracking-wider text-[var(--text-dim)]">Longitude</div>
+                      <div class="font-semibold text-[var(--text-primary)] mt-0.5">${station.lng.toFixed(5)}°</div>
+                    </div>
+                  </div>
+                  ${rxMetaHtml}
+                  ${txMetaHtml}
+                  ${station.isDesign ? `
+                    <div class="mt-2 text-[10px] text-[var(--text-dim)] font-mono flex items-center justify-between">
+                      <span>Interactive:</span>
+                      <span class="text-[var(--accent-loran-c)] font-semibold">Reposition by drag</span>
+                    </div>
+                  ` : ''}
+                </div>
               </div>
             `;
-            new maplibregl.Popup({ offset: 15 }).setLngLat([station.lng, station.lat]).setHTML(popupContent).addTo(map);
+            new maplibregl.Popup({ offset: 15, maxWidth: '280px' }).setLngLat([station.lng, station.lat]).setHTML(popupContent).addTo(map);
           }
         });
 
@@ -842,13 +928,23 @@ export default function MapView({ onMapClick, isELoran = false }) {
           if (!feat) return;
           const p = feat.properties;
           const content = `
-            <div class="font-mono text-xs">
-              <div class="font-bold text-[var(--status-warn)] mb-1">Baseline Extension Hazard Zone</div>
-              <div class="text-[11px] text-[var(--text-secondary)]">Station: ${p.stationId || ''} (${p.stationRole || ''})</div>
-              <div class="text-[10px] text-[var(--text-muted)] mt-1">${p.description || 'Ambiguous hyperbolic gradient.'}</div>
+            <div class="w-[230px] text-[var(--text-primary)] font-sans antialiased select-none">
+              <div class="flex items-center justify-between px-3 py-2 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] pr-9">
+                <span class="font-mono font-bold text-xs text-[var(--status-warn)]">BASELINE HAZARD</span>
+                <span class="pill text-[9px] font-mono uppercase tracking-wider border-[var(--status-warn)]/40 text-[var(--status-warn)] bg-[var(--status-warn)]/10">WARNING</span>
+              </div>
+              <div class="p-3 bg-[var(--bg-canvas)] space-y-1.5 font-mono text-[11px]">
+                <div class="flex items-center justify-between">
+                  <span class="text-[var(--text-dim)] uppercase text-[10px]">Station</span>
+                  <span class="text-[var(--text-primary)] font-semibold">${p.stationId || ''} (${p.stationRole || ''})</span>
+                </div>
+                <div class="pt-1.5 border-t border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)] leading-relaxed">
+                  ${p.description || 'Ambiguous hyperbolic gradient.'}
+                </div>
+              </div>
             </div>
           `;
-          new maplibregl.Popup({ offset: 10 }).setLngLat(e.lngLat).setHTML(content).addTo(map);
+          new maplibregl.Popup({ offset: 10, maxWidth: '260px' }).setLngLat(e.lngLat).setHTML(content).addTo(map);
         };
 
         map.on('click', fillLayerId, clickHandler);
@@ -946,14 +1042,28 @@ export default function MapView({ onMapClick, isELoran = false }) {
           if (!feat) return;
           const p = feat.properties;
           const content = `
-            <div class="font-mono text-xs">
-              <div class="font-bold text-[var(--accent-eloran)] mb-1">Hyperbolic Line of Position (LOP)</div>
-              <div class="text-[var(--text-secondary)]">Master index: ${p.masterIndex} | Secondary: ${p.slaveIndex}</div>
-              <div class="text-[var(--text-secondary)]">Delay offset: ${(p.levelMeters || 0).toFixed(0)} m</div>
-              <div class="text-[var(--text-secondary)]">TDOA: ${(p.levelSeconds || 0).toExponential(3)} s</div>
+            <div class="w-[230px] text-[var(--text-primary)] font-sans antialiased select-none">
+              <div class="flex items-center justify-between px-3 py-2 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] pr-9">
+                <span class="font-mono font-bold text-xs text-[var(--accent-eloran)]">HYPERBOLIC LOP</span>
+                <span class="pill text-[9px] font-mono uppercase tracking-wider pill-eloran">TDOA</span>
+              </div>
+              <div class="p-3 bg-[var(--bg-canvas)] space-y-1.5 font-mono text-[11px]">
+                <div class="flex items-center justify-between">
+                  <span class="text-[var(--text-dim)] uppercase text-[10px]">Baseline Pair</span>
+                  <span class="text-[var(--text-primary)] font-semibold">M${p.masterIndex} - S${p.slaveIndex}</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-[var(--text-dim)] uppercase text-[10px]">Range Offset</span>
+                  <span class="text-[var(--text-primary)] font-semibold">${(p.levelMeters || 0).toFixed(0)} m</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-[var(--text-dim)] uppercase text-[10px]">TDOA Delay</span>
+                  <span class="text-[var(--text-primary)] font-semibold">${(p.levelSeconds || 0).toExponential(3)} s</span>
+                </div>
+              </div>
             </div>
           `;
-          new maplibregl.Popup().setLngLat(e.lngLat).setHTML(content).addTo(map);
+          new maplibregl.Popup({ offset: 10, maxWidth: '260px' }).setLngLat(e.lngLat).setHTML(content).addTo(map);
         };
 
         map.on('click', layerId, clickHandler);
@@ -1912,7 +2022,7 @@ export default function MapView({ onMapClick, isELoran = false }) {
             title="Dismiss notice"
             aria-label="Dismiss notice"
           >
-            ✕
+            <X size={12} />
           </button>
         </div>
       )}
@@ -1966,7 +2076,7 @@ export default function MapView({ onMapClick, isELoran = false }) {
           )}
           {isInBaselineExtension && (
             <div
-              className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider animate-pulse"
+              className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider animate-pulse flex items-center gap-1"
               style={{
                 background: 'rgba(239, 68, 68, 0.15)',
                 color: 'var(--status-danger)',
@@ -1974,7 +2084,8 @@ export default function MapView({ onMapClick, isELoran = false }) {
               }}
               title="Within ±7.5° baseline extension: hyperbolic gradient is degenerate"
             >
-              ⚠ Baseline Extension
+              <AlertTriangle size={11} aria-hidden="true" />
+              <span>Baseline Extension</span>
             </div>
           )}
         </div>
@@ -2013,7 +2124,7 @@ export default function MapView({ onMapClick, isELoran = false }) {
                 : p.id === 'osm-standard'
                 ? 'OSM'
                 : p.id === 'carto-dark'
-                ? (CARTO_API_KEY ? 'CARTO' : 'CARTO 🔒')
+                ? (CARTO_API_KEY ? 'CARTO' : 'CARTO (Key Required)')
                 : 'Radar'}
             </button>
           );
@@ -2165,12 +2276,11 @@ export default function MapView({ onMapClick, isELoran = false }) {
               <span>Station Symbols</span>
               <button
                 onClick={() => setShowLegend(false)}
-                className="font-bold px-1 rounded cursor-pointer leading-none hover:text-[var(--text-primary)]"
-                style={{ color: 'var(--text-dim)' }}
+                className="p-0.5 rounded cursor-pointer hover:text-[var(--text-primary)] text-[var(--text-dim)]"
                 title="Hide map symbols legend"
                 aria-label="Hide symbols legend"
               >
-                ✕
+                <X size={11} />
               </button>
             </div>
             <div className="flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>

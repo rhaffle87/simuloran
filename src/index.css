@@ -325,11 +325,38 @@
   background-color: var(--bg-surface) !important;
   color: var(--text-primary) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 8px !important;
+  border-radius: 10px !important;
   box-shadow: var(--shadow-card) !important;
-  padding: 12px !important;
+  padding: 0 !important;
   font-family: var(--font-mono) !important;
   font-size: 11px !important;
+  overflow: hidden !important;
+}
+
+.maplibregl-popup-close-button {
+  width: 22px !important;
+  height: 22px !important;
+  top: 8px !important;
+  right: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 5px !important;
+  background: var(--bg-canvas) !important;
+  border: 1px solid var(--border-subtle) !important;
+  color: var(--text-dim) !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  padding: 0 !important;
+  outline: none !important;
+}
+
+.maplibregl-popup-close-button:hover {
+  background: var(--bg-muted) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-strong) !important;
 }
 .maplibregl-popup-anchor-top .maplibregl-popup-tip    { border-bottom-color: var(--bg-surface) !important; }
 .maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--bg-surface) !important; }

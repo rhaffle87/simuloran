@@ -210,7 +210,7 @@ export default function ChainDesignPanel() {
           <div className="mt-2 space-y-1">
             {plan.warnings.map((w, i) => (
               <div key={i} className="text-[10px] leading-tight text-[var(--status-warn)] flex items-start gap-1">
-                <span>⚠</span>
+                <AlertTriangle size={11} className="shrink-0 mt-0.5" aria-hidden="true" />
                 <span>{w.message}</span>
               </div>
             ))}

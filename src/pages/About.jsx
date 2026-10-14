@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Cpu, ShieldCheck, Heart, Radio, ExternalLink,
   BookOpen, Database, Compass, Activity, ArrowRight,
-  Code2, CheckCircle2,
+  Code2, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
 
 
@@ -417,7 +417,8 @@ export default function About() {
         }}
       >
         <div className="font-bold uppercase tracking-wider mb-1 flex items-center gap-1.5" style={{ color: 'var(--banner-edu-title, #78350f)' }}>
-          <span>⚠ Educational Simulator Notice</span>
+          <AlertTriangle size={14} aria-hidden="true" />
+          <span>Educational Simulator Notice</span>
         </div>
         SIMULORAN is an academic simulation and educational tool for exploring radio-navigation principles. It is
         explicitly <strong>not certified</strong> for actual maritime navigation, aviation, or safety-of-life operations.

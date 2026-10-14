@@ -1,4 +1,4 @@
-﻿/**
+/**
  * NMEA 0183 Radionavigation Telemetry Engine for SIMULORAN
  * Generates standard maritime NMEA sentences for GPS, Loran-C, and eLoran receivers.
  */
@@ -9,6 +9,26 @@ export function computeNmeaChecksum(sentenceWithoutDollar) {
     checksum ^= sentenceWithoutDollar.charCodeAt(i);
   }
   return checksum.toString(16).toUpperCase().padStart(2, '0');
+}
+
+/**
+ * Validates the NMEA 0183 XOR checksum of a sentence.
+ * @param {string} sentence - Full NMEA sentence (with or without leading $/!, with *CS).
+ * @returns {boolean} True if checksum matches.
+ */
+export function validateChecksum(sentence) {
+  if (typeof sentence !== 'string') return false;
+  const trimmed = sentence.trim();
+  const starIdx = trimmed.indexOf('*');
+  if (starIdx === -1 || starIdx + 3 > trimmed.length) return false;
+
+  const content = trimmed.startsWith('$') || trimmed.startsWith('!')
+    ? trimmed.slice(1, starIdx)
+    : trimmed.slice(0, starIdx);
+
+  const expectedHex = trimmed.slice(starIdx + 1, starIdx + 3).toUpperCase();
+  const actualHex = computeNmeaChecksum(content);
+  return expectedHex === actualHex;
 }
 
 export function decimalDegreesToNmea(deg, type) {

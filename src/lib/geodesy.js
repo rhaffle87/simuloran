@@ -137,16 +137,28 @@ export function computeTotalPropagationTimeSec(distanceMeters, eta = DEFAULT_REF
  * @param {{lat: number, lng: number}} b - Point B {lat, lng} in degrees
  * @returns {number} Distance in meters
  */
-export function haversineDistance(a, b) {
-  if (!a || !b || typeof a.lat !== 'number' || typeof a.lng !== 'number' ||
-      typeof b.lat !== 'number' || typeof b.lng !== 'number') {
+export function haversineDistance(a, b, c, d) {
+  let lat1Deg, lng1Deg, lat2Deg, lng2Deg;
+  if (typeof a === 'number' && typeof b === 'number' && typeof c === 'number' && typeof d === 'number') {
+    lat1Deg = a;
+    lng1Deg = b;
+    lat2Deg = c;
+    lng2Deg = d;
+  } else if (a && b && typeof a.lat === 'number' && typeof a.lng === 'number' &&
+             typeof b.lat === 'number' && typeof b.lng === 'number') {
+    lat1Deg = a.lat;
+    lng1Deg = a.lng;
+    lat2Deg = b.lat;
+    lng2Deg = b.lng;
+  } else {
     return 0;
   }
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
+
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2Deg - lat1Deg);
+  const dLon = toRad(lng2Deg - lng1Deg);
+  const lat1 = toRad(lat1Deg);
+  const lat2 = toRad(lat2Deg);
 
   const sinHalfDLat = Math.sin(dLat / 2);
   const sinHalfDLon = Math.sin(dLon / 2);
@@ -161,13 +173,26 @@ export function haversineDistance(a, b) {
  * @param {{lat: number, lng: number}} b - End point {lat, lng} in degrees
  * @returns {number} Bearing in degrees from North (0°..360°)
  */
-export function initialBearing(a, b) {
-  const toRad = (d) => (d * Math.PI) / 180;
-  const toDeg = (r) => (r * 180) / Math.PI;
+export function initialBearing(a, b, c, d) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toDeg = (rad) => (rad * 180) / Math.PI;
 
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const dLon = toRad(b.lng - a.lng);
+  let lat1Deg, lng1Deg, lat2Deg, lng2Deg;
+  if (typeof a === 'number' && typeof b === 'number' && typeof c === 'number' && typeof d === 'number') {
+    lat1Deg = a;
+    lng1Deg = b;
+    lat2Deg = c;
+    lng2Deg = d;
+  } else {
+    lat1Deg = a.lat;
+    lng1Deg = a.lng;
+    lat2Deg = b.lat;
+    lng2Deg = b.lng;
+  }
+
+  const lat1 = toRad(lat1Deg);
+  const lat2 = toRad(lat2Deg);
+  const dLon = toRad(lng2Deg - lng1Deg);
 
   const y = Math.sin(dLon) * Math.cos(lat2);
   const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);

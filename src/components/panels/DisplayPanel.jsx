@@ -215,6 +215,10 @@ export default function DisplayPanel({ isELoran = false }) {
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-[var(--accent-eloran)]" />
                 <span>GDOP Inspector & Contour Filter</span>
+                <InfoTooltip
+                  content="Evaluates geometric dilution of precision. Heatmap surface and iso-contours can be isolated by threshold."
+                  align="left"
+                />
               </span>
               <span className="text-[10px] font-mono text-[var(--accent-eloran)]">
                 {settings.gdopSelectedLevel === 'all' || !settings.gdopSelectedLevel
@@ -235,7 +239,8 @@ export default function DisplayPanel({ isELoran = false }) {
                     : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-dim)]'
                 }`}
               >
-                <span>🔥 Heatmap Surface</span>
+                <Layers size={13} aria-hidden="true" />
+                <span>Heatmap Surface</span>
                 <span className="text-[9px] uppercase font-bold">
                   {settings.gdopHeatmapVisible !== false ? 'ON' : 'OFF'}
                 </span>
@@ -251,7 +256,8 @@ export default function DisplayPanel({ isELoran = false }) {
                     : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-dim)]'
                 }`}
               >
-                <span>📈 Iso-Contours</span>
+                <Activity size={13} aria-hidden="true" />
+                <span>Iso-Contours</span>
                 <span className="text-[9px] uppercase font-bold">
                   {settings.gdopContoursVisible !== false ? 'ON' : 'OFF'}
                 </span>
@@ -261,7 +267,13 @@ export default function DisplayPanel({ isELoran = false }) {
             {/* Dedicated Iso-GDOP Level Inspection Buttons */}
             <div className="space-y-1.5 pt-1 border-t border-[var(--border-subtle)]">
               <div className="flex items-center justify-between text-[10px] text-[var(--text-dim)]">
-                <span>Inspect Individual Contour Line:</span>
+                <span className="flex items-center gap-1">
+                  <span>Inspect Contour Line:</span>
+                  <InfoTooltip
+                    content="1.5 (Optimal HEA <10m), 3.0 (Coastal transit), 7.7 (Marginal en-route), 10.92 (USCG M16562.4A Boundary Limit)."
+                    align="left"
+                  />
+                </span>
                 <span className="font-mono text-[9px] text-[var(--text-muted)]">Click to isolate</span>
               </div>
 
@@ -275,6 +287,7 @@ export default function DisplayPanel({ isELoran = false }) {
                       ? 'bg-[var(--bg-muted)] border-[var(--border-default)] text-[var(--text-primary)] font-bold'
                       : 'border-[var(--border-subtle)] text-[var(--text-dim)] hover:border-[var(--border-default)]'
                   }`}
+                  title="Show all four calibrated precision contours"
                 >
                   All (4)
                 </button>
@@ -287,6 +300,7 @@ export default function DisplayPanel({ isELoran = false }) {
                       ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-bold'
                       : 'border-[var(--border-subtle)] text-emerald-500 hover:border-emerald-500/50'
                   }`}
+                  title="GDOP ≤ 1.5: Optimal HEA (<10m)"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                   <span>1.5</span>
@@ -300,6 +314,7 @@ export default function DisplayPanel({ isELoran = false }) {
                       ? 'bg-sky-500/20 border-sky-500 text-sky-400 font-bold'
                       : 'border-[var(--border-subtle)] text-sky-400 hover:border-sky-500/50'
                   }`}
+                  title="GDOP ≤ 3.0: Coastal waterway transit"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
                   <span>3.0</span>
@@ -313,6 +328,7 @@ export default function DisplayPanel({ isELoran = false }) {
                       ? 'bg-amber-500/20 border-amber-500 text-amber-400 font-bold'
                       : 'border-[var(--border-subtle)] text-amber-400 hover:border-amber-500/50'
                   }`}
+                  title="GDOP ≤ 7.7: Marginal ocean en-route"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                   <span>7.7</span>
@@ -326,39 +342,11 @@ export default function DisplayPanel({ isELoran = false }) {
                       ? 'bg-red-500/20 border-red-500 text-red-400 font-bold'
                       : 'border-[var(--border-subtle)] text-red-400 hover:border-red-500/50'
                   }`}
+                  title="GDOP ≤ 10.92: USCG specification boundary limit"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
                   <span>10.92</span>
                 </button>
-              </div>
-
-              {/* Selected Level Operational Description */}
-              <div className="text-[10px] text-[var(--text-muted)] bg-[var(--bg-surface)] p-2 rounded border border-[var(--border-subtle)] leading-relaxed">
-                {settings.gdopSelectedLevel === '1.5' && (
-                  <span className="text-emerald-400 font-medium">
-                    <strong>GDOP ≤ 1.5 (Green Line):</strong> Optimal fix geometry. Meets strict Harbor Entrance & Approach (HEA) accuracy (&lt;10 m 95% fix with differential corrections).
-                  </span>
-                )}
-                {settings.gdopSelectedLevel === '3.0' && (
-                  <span className="text-sky-400 font-medium">
-                    <strong>GDOP ≤ 3.0 (Blue Line):</strong> Good fix geometry. Certified standard for coastal waterway transit and TSS corridor navigation.
-                  </span>
-                )}
-                {settings.gdopSelectedLevel === '7.7' && (
-                  <span className="text-amber-400 font-medium">
-                    <strong>GDOP ≤ 7.7 (Yellow Line):</strong> Marginal fix geometry. Ocean en-route navigation regime; increased sensitivity to pseudorange noise.
-                  </span>
-                )}
-                {settings.gdopSelectedLevel === '10.92' && (
-                  <span className="text-red-400 font-medium">
-                    <strong>GDOP ≤ 10.92 (Red Dashed Line):</strong> USCG COMDTINST M16562.4A specification boundary limit. Fixes outside this contour are flagged degraded.
-                  </span>
-                )}
-                {(!settings.gdopSelectedLevel || settings.gdopSelectedLevel === 'all') && (
-                  <span>
-                    Four calibrated Loran-C precision contours displayed: <strong>1.5</strong> (Optimal HEA), <strong>3.0</strong> (Coastal), <strong>7.7</strong> (Marginal), and <strong>10.92</strong> (USCG Boundary Limit).
-                  </span>
-                )}
               </div>
 
               {/* Heatmap Opacity Slider */}
