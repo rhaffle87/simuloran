@@ -549,20 +549,33 @@ export default function MapView({ onMapClick, isELoran = false }) {
         el.addEventListener('click', (e) => {
           e.stopPropagation();
           if (mapMode === 'pan' && isValidLngLat(station.lng, station.lat)) {
-            let roleBadge = '';
-            let rolePillClass = 'pill-eloran';
+            let roleBadge = 'RECEIVER';
+            let roleColorClass = 'text-[var(--status-ok)]';
+            let statusDotClass = 'bg-[var(--status-ok)]';
+
             if (station.isDesign) {
-              roleBadge = `PROPOSED ${station.type.toUpperCase()}`;
-              rolePillClass = 'border-[var(--accent-loran-c)]/40 text-[var(--accent-loran-c)] bg-[var(--accent-loran-c)]/10';
+              roleBadge = 'PROPOSED NODE';
+              roleColorClass = 'text-[var(--accent-loran-c)]';
+              statusDotClass = 'bg-[var(--accent-loran-c)]';
             } else if (station.type === 'master') {
-              roleBadge = 'MASTER (M)';
-              rolePillClass = 'pill-eloran';
+              roleBadge = 'MASTER TRANSMITTER';
+              roleColorClass = 'text-[var(--accent-eloran)]';
+              statusDotClass = 'bg-[var(--accent-eloran)]';
             } else if (station.type === 'slave') {
-              roleBadge = 'SECONDARY (S)';
-              rolePillClass = 'pill-loran-c';
-            } else {
-              roleBadge = 'RECEIVER (RX)';
-              rolePillClass = 'pill-ok';
+              roleBadge = 'SECONDARY TRANSMITTER';
+              roleColorClass = 'text-[var(--accent-loran-c)]';
+              statusDotClass = 'bg-[var(--accent-loran-c)]';
+            }
+
+            const stStatus = stationStatus[station.label] || 'nominal';
+            if (stStatus === 'failed') {
+              statusDotClass = 'bg-[var(--status-err)]';
+              roleColorClass = 'text-[var(--status-err)]';
+              roleBadge += ' (FAILED)';
+            } else if (stStatus === 'degraded') {
+              statusDotClass = 'bg-[var(--status-warn)]';
+              roleColorClass = 'text-[var(--status-warn)]';
+              roleBadge += ' (DEGRADED)';
             }
 
             // Optional telemetry query for receivers
@@ -623,21 +636,27 @@ export default function MapView({ onMapClick, isELoran = false }) {
               `;
             }
 
+            const latStr = `${Math.abs(station.lat).toFixed(5)}° ${station.lat >= 0 ? 'N' : 'S'}`;
+            const lngStr = `${Math.abs(station.lng).toFixed(5)}° ${station.lng >= 0 ? 'E' : 'W'}`;
+
             const popupContent = `
-              <div class="w-[240px] text-[var(--text-primary)] font-sans antialiased select-none">
-                <div class="flex items-center justify-between px-3 py-2.5 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] pr-9">
-                  <span class="font-mono font-bold text-xs tracking-tight text-[var(--text-primary)] truncate" title="${station.label}">${station.label}</span>
-                  <span class="pill text-[9px] font-mono uppercase tracking-wider ${rolePillClass}">${roleBadge}</span>
+              <div class="w-[260px] text-[var(--text-primary)] font-sans antialiased select-none">
+                <div class="px-3.5 pt-3 pb-2.5 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] pr-8">
+                  <div class="flex items-center gap-1.5 mb-1.5">
+                    <span class="inline-block w-2 h-2 rounded-full ${statusDotClass}"></span>
+                    <span class="text-[10px] font-mono font-semibold uppercase tracking-wider ${roleColorClass}">${roleBadge}</span>
+                  </div>
+                  <div class="font-mono font-bold text-xs tracking-tight text-[var(--text-primary)] break-all leading-tight select-text" title="${station.label}">${station.label}</div>
                 </div>
                 <div class="p-3 bg-[var(--bg-canvas)]">
                   <div class="grid grid-cols-2 gap-2 p-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-surface)] font-mono text-[11px]">
                     <div>
                       <div class="text-[9px] uppercase tracking-wider text-[var(--text-dim)]">Latitude</div>
-                      <div class="font-semibold text-[var(--text-primary)] mt-0.5">${station.lat.toFixed(5)}°</div>
+                      <div class="font-semibold text-[var(--text-primary)] mt-0.5">${latStr}</div>
                     </div>
                     <div>
                       <div class="text-[9px] uppercase tracking-wider text-[var(--text-dim)]">Longitude</div>
-                      <div class="font-semibold text-[var(--text-primary)] mt-0.5">${station.lng.toFixed(5)}°</div>
+                      <div class="font-semibold text-[var(--text-primary)] mt-0.5">${lngStr}</div>
                     </div>
                   </div>
                   ${rxMetaHtml}
@@ -651,7 +670,7 @@ export default function MapView({ onMapClick, isELoran = false }) {
                 </div>
               </div>
             `;
-            new maplibregl.Popup({ offset: 15, maxWidth: '280px' }).setLngLat([station.lng, station.lat]).setHTML(popupContent).addTo(map);
+            new maplibregl.Popup({ offset: 15, maxWidth: '290px' }).setLngLat([station.lng, station.lat]).setHTML(popupContent).addTo(map);
           }
         });
 
@@ -928,17 +947,16 @@ export default function MapView({ onMapClick, isELoran = false }) {
           if (!feat) return;
           const p = feat.properties;
           const content = `
-            <div class="w-[230px] text-[var(--text-primary)] font-sans antialiased select-none">
-              <div class="flex items-center justify-between px-3 py-2 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] pr-9">
-                <span class="font-mono font-bold text-xs text-[var(--status-warn)]">BASELINE HAZARD</span>
-                <span class="pill text-[9px] font-mono uppercase tracking-wider border-[var(--status-warn)]/40 text-[var(--status-warn)] bg-[var(--status-warn)]/10">WARNING</span>
+            <div class="w-[250px] text-[var(--text-primary)] font-sans antialiased select-none">
+              <div class="px-3.5 pt-3 pb-2 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] pr-8">
+                <div class="flex items-center gap-1.5 mb-1">
+                  <span class="inline-block w-2 h-2 rounded-full bg-[var(--status-warn)]"></span>
+                  <span class="text-[10px] font-mono font-semibold uppercase tracking-wider text-[var(--status-warn)]">BASELINE HAZARD ZONE</span>
+                </div>
+                <div class="font-mono font-bold text-xs tracking-tight text-[var(--text-primary)]">${p.stationId || 'Station'} (${p.stationRole || 'Secondary'})</div>
               </div>
               <div class="p-3 bg-[var(--bg-canvas)] space-y-1.5 font-mono text-[11px]">
-                <div class="flex items-center justify-between">
-                  <span class="text-[var(--text-dim)] uppercase text-[10px]">Station</span>
-                  <span class="text-[var(--text-primary)] font-semibold">${p.stationId || ''} (${p.stationRole || ''})</span>
-                </div>
-                <div class="pt-1.5 border-t border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)] leading-relaxed">
+                <div class="text-[10px] text-[var(--text-muted)] leading-relaxed">
                   ${p.description || 'Ambiguous hyperbolic gradient.'}
                 </div>
               </div>
@@ -1042,16 +1060,15 @@ export default function MapView({ onMapClick, isELoran = false }) {
           if (!feat) return;
           const p = feat.properties;
           const content = `
-            <div class="w-[230px] text-[var(--text-primary)] font-sans antialiased select-none">
-              <div class="flex items-center justify-between px-3 py-2 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] pr-9">
-                <span class="font-mono font-bold text-xs text-[var(--accent-eloran)]">HYPERBOLIC LOP</span>
-                <span class="pill text-[9px] font-mono uppercase tracking-wider pill-eloran">TDOA</span>
+            <div class="w-[250px] text-[var(--text-primary)] font-sans antialiased select-none">
+              <div class="px-3.5 pt-3 pb-2 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] pr-8">
+                <div class="flex items-center gap-1.5 mb-1">
+                  <span class="inline-block w-2 h-2 rounded-full bg-[var(--accent-eloran)]"></span>
+                  <span class="text-[10px] font-mono font-semibold uppercase tracking-wider text-[var(--accent-eloran)]">HYPERBOLIC LOP CONTOUR</span>
+                </div>
+                <div class="font-mono font-bold text-xs tracking-tight text-[var(--text-primary)]">Baseline Pair M${p.masterIndex} - S${p.slaveIndex}</div>
               </div>
               <div class="p-3 bg-[var(--bg-canvas)] space-y-1.5 font-mono text-[11px]">
-                <div class="flex items-center justify-between">
-                  <span class="text-[var(--text-dim)] uppercase text-[10px]">Baseline Pair</span>
-                  <span class="text-[var(--text-primary)] font-semibold">M${p.masterIndex} - S${p.slaveIndex}</span>
-                </div>
                 <div class="flex items-center justify-between">
                   <span class="text-[var(--text-dim)] uppercase text-[10px]">Range Offset</span>
                   <span class="text-[var(--text-primary)] font-semibold">${(p.levelMeters || 0).toFixed(0)} m</span>
